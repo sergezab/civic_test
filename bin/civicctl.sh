@@ -44,6 +44,7 @@ PORT=8088
 UI_PORT=5173
 UI_HOST="0.0.0.0"   # bind wildcard so http://<host>.lan:5173 works on the LAN
 RELOAD="--reload"
+UI_HTTPS=0          # --https → serve Vite over self-signed TLS (mic needs secure ctx)
 
 # ── Colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -109,6 +110,8 @@ parse_options() {
             --ui-port)   UI_PORT="$2"; shift 2 ;;
             --ui-port=*) UI_PORT="${1#--ui-port=}"; shift ;;
             --no-reload) RELOAD=""; shift ;;
+            --https)     UI_HTTPS=1; shift ;;
+            --http)      UI_HTTPS=0; shift ;;
             *)           shift ;;
         esac
     done
@@ -170,16 +173,20 @@ cmd_start() {
             info "Installing frontend dependencies (pnpm install)…"
             (cd "$REPO_ROOT" && pnpm install)
         fi
-        info "Starting frontend (Vite on :${UI_PORT})…"
+        local scheme="http"
+        [[ "$UI_HTTPS" == "1" ]] && scheme="https"
+        info "Starting frontend (Vite on :${UI_PORT}, scheme=${scheme})…"
         {
             echo ""
             echo "════════════════════════════════════════"
             echo "  SESSION STARTED: $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "  Scheme: ${scheme}"
             echo "════════════════════════════════════════"
         } >> "$FRONTEND_LOG"
         (
             cd "$REPO_ROOT" || exit 1
-            nohup pnpm exec vite --host "$UI_HOST" --port "$UI_PORT" --strictPort \
+            # HTTPS=1 makes vite.config.ts enable the basicSsl plugin (self-signed cert).
+            HTTPS="$UI_HTTPS" nohup pnpm exec vite --host "$UI_HOST" --port "$UI_PORT" --strictPort \
                 >> "$FRONTEND_LOG" 2>&1 &
             echo $! > "$FRONTEND_PID_FILE"
         )
@@ -191,13 +198,19 @@ cmd_start() {
     info "Waiting for services to be ready…"
     sleep 3
     local be_ok=false fe_ok=false
+    local fe_scheme="http"
+    [[ "$UI_HTTPS" == "1" ]] && fe_scheme="https"
     curl -sf --max-time 3 "http://localhost:${PORT}/health" &>/dev/null && be_ok=true
-    curl -sf --max-time 3 "http://localhost:${UI_PORT}"     &>/dev/null && fe_ok=true
+    # -k: self-signed cert when UI_HTTPS=1 (basicSsl plugin).
+    curl -skf --max-time 3 "${fe_scheme}://localhost:${UI_PORT}" &>/dev/null && fe_ok=true
     echo ""
     $be_ok && ok "Backend  →  http://localhost:${PORT}  (docs: http://localhost:${PORT}/docs)" \
            || warn "Backend not responding yet — check: bash bin/civicctl.sh logs backend"
-    $fe_ok && ok "Frontend →  http://localhost:${UI_PORT}" \
+    $fe_ok && ok "Frontend →  ${fe_scheme}://localhost:${UI_PORT}" \
            || warn "Frontend not responding yet — check: bash bin/civicctl.sh logs frontend"
+    if [[ "$UI_HTTPS" == "1" ]]; then
+        echo -e "${DIM}  LAN: ${fe_scheme}://$(hostname -s).lan:${UI_PORT}  (self-signed cert — accept the browser warning)${NC}"
+    fi
     echo ""
 }
 
@@ -231,9 +244,14 @@ cmd_status() {
     echo ""
     if is_running "$FRONTEND_PID_FILE"; then
         ok "Frontend  running  (PID $(cat "$FRONTEND_PID_FILE"))"
-        curl -sf --max-time 2 "http://localhost:${UI_PORT}" &>/dev/null \
-            && echo -e "           ${DIM}http://localhost:${UI_PORT} responding${NC}" \
-            || warn "          Frontend not responding (http://localhost:${UI_PORT})"
+        # Detect scheme by probing http first, then https (covers --https mode).
+        local fe_url="http://localhost:${UI_PORT}"
+        if ! curl -sf --max-time 2 "$fe_url" &>/dev/null; then
+            curl -skf --max-time 2 "https://localhost:${UI_PORT}" &>/dev/null && fe_url="https://localhost:${UI_PORT}"
+        fi
+        curl -skf --max-time 2 "$fe_url" &>/dev/null \
+            && echo -e "           ${DIM}${fe_url} responding${NC}" \
+            || warn "          Frontend not responding on :${UI_PORT}"
     else
         rm -f "$FRONTEND_PID_FILE"; fail "Frontend  stopped"
     fi
@@ -323,6 +341,7 @@ cmd_help() {
     echo "    --port PORT       Backend port (default: 8088)"
     echo "    --ui-port PORT    Frontend port (default: 5173)"
     echo "    --no-reload       Disable uvicorn auto-reload"
+    echo "    --https           Serve frontend over self-signed TLS (mic needs secure ctx)"
     echo ""
     echo "  Logs: logs/backend.log  logs/frontend.log"
     echo "  PIDs: logs/backend.pid  logs/frontend.pid"

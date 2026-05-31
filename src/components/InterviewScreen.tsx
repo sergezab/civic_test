@@ -853,13 +853,26 @@ export function InterviewScreen({
         </label>
       </div>
 
-      {insecureVoice && (
-        <p className="insecure-note">
-          🎤 The microphone is blocked on this address. Speech needs a secure
-          connection — open <code>http://localhost:5173</code> on this machine, or
-          serve over HTTPS (<code>npm run dev:https</code>). You can type answers below.
-        </p>
-      )}
+      {insecureVoice && (() => {
+        const { protocol, host, hostname, pathname, search, hash } = window.location
+        const httpsUrl = `https://${host}${pathname}${search}${hash}`
+        const isLocalHostname = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+        return (
+          <p className="insecure-note">
+            🎤 The microphone is blocked on this address ({protocol}//{host}). Browsers only allow
+            mic access over HTTPS or on <code>localhost</code>.{" "}
+            {isLocalHostname ? (
+              <>You're already on localhost — try reloading. If that doesn't help, serve over HTTPS with{" "}
+              <code>bash bin/civicctl.sh restart --https</code>.</>
+            ) : (
+              <>Open <a href={httpsUrl}>{httpsUrl}</a> instead (you'll need to accept the self-signed
+              cert once). To enable HTTPS on the server, run{" "}
+              <code>bash bin/civicctl.sh restart --https</code>.</>
+            )}
+            {" "}You can type answers below in the meantime.
+          </p>
+        )
+      })()}
 
       <div className="question-bar">
         <div className="question-meta">
