@@ -6,6 +6,7 @@ Run locally:  uvicorn app:app --host 0.0.0.0 --port 8088
 from __future__ import annotations
 
 import time
+import uuid
 from collections import defaultdict, deque
 from typing import Literal
 
@@ -29,7 +30,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=config.ALLOWED_ORIGINS,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["content-type"],
+    allow_headers=["content-type", "x-request-id"],
 )
 
 # ── crude in-memory per-IP rate limit (single-process) ────────────
@@ -53,6 +54,11 @@ def _client_key(request: Request) -> str:
         if forwarded_for:
             return forwarded_for.split(",", maxsplit=1)[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+def _request_id(request: Request) -> str:
+    value = getattr(request.state, "request_id", "")
+    return value if isinstance(value, str) and value else "-"
 
 
 async def _read_capped_upload(file: UploadFile, max_bytes: int) -> tuple[bytes, bool]:
@@ -100,6 +106,25 @@ class STTResponse(BaseModel):
     text: str
 
 
+@app.middleware("http")
+async def request_logging(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
+    request.state.request_id = request_id
+    t0 = time.perf_counter()
+    response = await call_next(request)
+    response.headers["x-request-id"] = request_id
+    log.info(
+        "request id=%s method=%s path=%s status=%d total=%.0fms ip=%s",
+        request_id,
+        request.method,
+        request.url.path,
+        response.status_code,
+        (time.perf_counter() - t0) * 1000,
+        _client_key(request),
+    )
+    return response
+
+
 @app.get("/health")
 def health() -> HealthResponse:
     return HealthResponse(
@@ -129,7 +154,8 @@ def grade_endpoint(req: GradeRequest, request: Request) -> GradeResponse | JSONR
     t0 = time.perf_counter()
     result = grader_service.grade(req.question, accepted, transcript)
     log.info(
-        "/grade q=%s chars=%d total=%.0fms verdict=%s fallback=%s ip=%s",
+        "/grade id=%s q=%s chars=%d total=%.0fms verdict=%s fallback=%s ip=%s",
+        _request_id(request),
         req.questionId,
         len(transcript),
         (time.perf_counter() - t0) * 1000,
@@ -148,7 +174,8 @@ def tts_endpoint(req: TTSRequest, request: Request) -> Response | JSONResponse:
     t0 = time.perf_counter()
     wav = tts_engine.synthesize(req.text)
     log.info(
-        "/tts chars=%d bytes=%d %.0fms",
+        "/tts id=%s chars=%d bytes=%d total=%.0fms",
+        _request_id(request),
         len(req.text or ""),
         len(wav) if wav else 0,
         (time.perf_counter() - t0) * 1000,
@@ -178,10 +205,15 @@ async def stt_endpoint(
     try:
         text = stt_engine.transcribe(data, suffix=suffix)
     except Exception:
-        log.warning("/stt failed after %.0fms", (time.perf_counter() - t0) * 1000)
+        log.warning(
+            "/stt id=%s failed total=%.0fms",
+            _request_id(request),
+            (time.perf_counter() - t0) * 1000,
+        )
         return JSONResponse(status_code=500, content={"error": "stt_failed"})
     log.info(
-        "/stt bytes=%d chars=%d %.0fms",
+        "/stt id=%s bytes=%d chars=%d total=%.0fms",
+        _request_id(request),
         len(data),
         len(text),
         (time.perf_counter() - t0) * 1000,

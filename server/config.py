@@ -43,6 +43,9 @@ GRADE_CONCURRENCY = int(os.getenv("GRADE_CONCURRENCY", "1"))
 TTS_CONCURRENCY = int(os.getenv("TTS_CONCURRENCY", "1"))
 STT_CONCURRENCY = int(os.getenv("STT_CONCURRENCY", "1"))
 
+# Logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
 # TTS — Piper (preferred) with macOS `say` fallback
 TTS_ENGINE = os.getenv("TTS_ENGINE", "piper")  # piper | say | auto
 PIPER_VOICE = os.getenv(

@@ -34,6 +34,12 @@ def test_health_ok(client):
     assert "provider" in body and "model" in body
 
 
+def test_request_id_is_echoed(client):
+    r = client.get("/health", headers={"x-request-id": "test-request-1"})
+    assert r.status_code == 200
+    assert r.headers["x-request-id"] == "test-request-1"
+
+
 # ── /grade ────────────────────────────────────────────────────────────────────
 def test_grade_returns_verdict(client, monkeypatch):
     monkeypatch.setattr(appmod.grader_service, "grade", _grade_stub("partial"))
