@@ -190,6 +190,10 @@ export function InterviewScreen({
       stopFeedbackAudio();
       speech.stop();
       if (rec.listening) rec.stop();
+      if (autoRef.current) {
+        pausedRef.current = false;
+        setPaused(false);
+      }
       const cq = deckRef.current[indexRef.current];
       if (!cq) return;
       const entry: LogEntry = {
@@ -237,6 +241,8 @@ export function InterviewScreen({
     stopFeedbackAudio();
     setResult(null);
     setNetError(null);
+    pausedRef.current = false;
+    setPaused(false);
     attemptRef.current = 2;
     setAttempt(2);
     rec.reset();
@@ -274,8 +280,12 @@ export function InterviewScreen({
           ilog("iv", "feedback done", { q: cq.id, ms: since(tf) });
           if (!autoRef.current || pausedRef.current) return; // manual: buttons drive it
           const { canRetry, outcome } = decide(res);
-          if (canRetry) startRetry();
-          else commitOutcome(res, outcome);
+          if (canRetry || res.verdict !== "correct") {
+            pausedRef.current = true;
+            setPaused(true);
+          } else {
+            commitOutcome(res, outcome);
+          }
         });
       } catch {
         ilog("iv", "grade error", { q: cq.id, ms: since(t0) });
@@ -284,7 +294,7 @@ export function InterviewScreen({
         if (autoRef.current) setPaused(true);
       }
     },
-    [commitOutcome, decide, playFeedback, rec, speech, startRetry],
+    [commitOutcome, decide, playFeedback, rec, speech],
   );
 
   // Hands-free silence detection: submit after a pause (or give up on silence).
@@ -381,8 +391,39 @@ export function InterviewScreen({
     setResult(null);
     setNetError(null);
     rec.reset();
+    pausedRef.current = false;
+    setPaused(false);
     if (auto) beginListening();
     else setStage("ready");
+  };
+
+  const goPrevious = () => {
+    if (indexRef.current <= 0) return;
+    stopFeedbackAudio();
+    speech.stop();
+    if (rec.listening) rec.stop();
+    const nextIndex = indexRef.current - 1;
+    indexRef.current = nextIndex;
+    attemptRef.current = 1;
+    setAttempt(1);
+    setResult(null);
+    setAnswer("");
+    setNetError(null);
+    setDone(false);
+    setStage("ready");
+    setIndex(nextIndex);
+    setLog((prev) => {
+      const next = prev.slice(0, nextIndex);
+      logRef.current = next;
+      return next;
+    });
+    if (autoRef.current) {
+      pausedRef.current = true;
+      setPaused(true);
+    }
+    lastReadRef.current = null;
+    rec.reset();
+    ilog("iv", "previous", { to: nextIndex + 1 });
   };
 
   const startHandsFree = () => {
@@ -511,6 +552,13 @@ export function InterviewScreen({
   if (!q) return null;
 
   const correctSoFar = log.filter((e) => e.outcome === "correct").length;
+  const reviewSoFar = log.filter((e) => e.outcome === "review").length;
+  const missedSoFar = log.filter((e) => e.outcome === "missed").length;
+  const answeredCount = log.length;
+  const progressPercent = deck.length > 0 ? (answeredCount / deck.length) * 100 : 0;
+  const currentResultLabel = result ? `${result.verdict} on this question` : null;
+  const canGoPrevious =
+    index > 0 && !["listening", "rec-audio", "transcribing", "grading"].includes(stage);
   const bookmarked = isBookmarked(q.id);
 
   const resultCorrect = result?.verdict === "correct";
@@ -698,7 +746,11 @@ export function InterviewScreen({
             )}
             {auto && !paused && (
               <p className="auto-next-hint">
-                {retryAvailable ? "Let’s try that one again…" : "Next question coming up…"}
+                {retryAvailable
+                  ? "Review the feedback, then try again when you're ready."
+                  : resultCorrect
+                    ? "Next question coming up…"
+                    : "Review the feedback, then continue when you're ready."}
               </p>
             )}
           </div>
@@ -754,7 +806,7 @@ export function InterviewScreen({
         {/* Result actions */}
         {stage === "result" && (
           <>
-            {!auto && retryAvailable && (
+            {retryAvailable && (
               <>
                 <button className="btn btn-primary btn-wide" onClick={startRetry}>
                   🎤 Try again
@@ -767,7 +819,7 @@ export function InterviewScreen({
                 </button>
               </>
             )}
-            {!auto && !retryAvailable && (
+            {(!retryAvailable && (!auto || paused || !resultCorrect)) && (
               <>
                 <button
                   className={`btn btn-wide ${resultCorrect ? "btn-correct" : "btn-primary"}`}
@@ -780,7 +832,7 @@ export function InterviewScreen({
                 </button>
               </>
             )}
-            {auto && (
+            {auto && !paused && resultCorrect && (
               <button className="btn btn-ghost" onClick={pauseAuto}>
                 ⏸ Pause
               </button>
@@ -816,10 +868,39 @@ export function InterviewScreen({
       )}
 
       <div className="interview-status">
-        <span className="progress-label">
-          Question {index + 1} of {deck.length}
-        </span>
-        <span className="interview-score">✓ {correctSoFar} correct</span>
+        <div className="interview-status-main">
+          <div className="interview-status-row">
+            <span className="progress-label">
+              Question {index + 1} of {deck.length}
+            </span>
+            <span className="progress-label">
+              Answered {answeredCount} of {deck.length}
+            </span>
+          </div>
+          <div
+            className="interview-progress"
+            role="progressbar"
+            aria-label="Interview progress"
+            aria-valuemin={0}
+            aria-valuemax={deck.length}
+            aria-valuenow={answeredCount}
+          >
+            <div className="interview-progress-fill" style={{ width: `${progressPercent}%` }} />
+          </div>
+          <div className="interview-score-row" aria-live="polite">
+            <span className="interview-score score-correct">✓ {correctSoFar} correct</span>
+            <span className="interview-score score-review">↻ {reviewSoFar} review</span>
+            <span className="interview-score score-missed">✕ {missedSoFar} missed</span>
+            {currentResultLabel && (
+              <span className={`interview-score score-now verdict-${result?.verdict}`}>
+                Now: {currentResultLabel}
+              </span>
+            )}
+          </div>
+        </div>
+        <button className="btn btn-ghost interview-prev-btn" onClick={goPrevious} disabled={!canGoPrevious}>
+          ← Previous question
+        </button>
       </div>
     </div>
   );

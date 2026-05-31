@@ -123,8 +123,8 @@ test.describe('Interview mode', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          verdict: correct ? 'correct' : 'incorrect',
-          feedback: correct ? 'Correct.' : 'Not quite. Try again.',
+          verdict: correct ? 'correct' : 'partial',
+          feedback: correct ? 'Correct.' : 'Name one more accepted answer, then try again.',
           correctAnswer: 'George Washington',
           heard: requestBody.transcript ?? '',
           model: null,
@@ -145,13 +145,22 @@ test.describe('Interview mode', () => {
     await page.getByLabel('Type your answer:').fill('Abraham Lincoln')
     await page.getByRole('button', { name: 'Submit answer' }).click()
 
-    await expect(page.getByText('Not quite. Try again.')).toBeVisible()
+    await expect(page.getByText('Name one more accepted answer, then try again.')).toBeVisible()
+    await expect(page.getByText('Now: partial on this question')).toBeVisible()
+    await expect(page.getByText('Answered 0 of 10')).toBeVisible()
     await page.getByRole('button', { name: 'Try again' }).click()
     await page.getByRole('button', { name: 'Type instead' }).click()
     await page.getByLabel('Type your answer:').fill('George Washington')
     await page.getByRole('button', { name: 'Submit answer' }).click()
 
     await expect(page.getByText('Got it on the retry')).toBeVisible()
+    await page.getByRole('button', { name: 'Next question' }).click()
+    await expect(page.getByText('Question 2 of 10')).toBeVisible()
+    await expect(page.getByText('Answered 1 of 10')).toBeVisible()
+    await expect(page.getByText('↻ 1 review')).toBeVisible()
+    await page.getByRole('button', { name: 'Previous question' }).click()
+    await expect(page.getByText('Question 1 of 10')).toBeVisible()
+    await expect(page.getByText('Answered 0 of 10')).toBeVisible()
     expect(gradeCalls).toBe(2)
   })
 

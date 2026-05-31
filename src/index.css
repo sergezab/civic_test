@@ -909,17 +909,76 @@ button.choice:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
 }
 .interview-status .progress-label {
   margin: 0;
 }
+.interview-status-main {
+  flex: 1;
+  min-width: 0;
+}
+.interview-status-row,
+.interview-score-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+.interview-progress {
+  height: 8px;
+  width: 100%;
+  margin: 8px 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.interview-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--navy-600);
+  transition: width 0.2s ease;
+}
 .interview-score {
   font-size: 13px;
   font-weight: 700;
-  color: var(--green);
-  background: var(--green-bg);
   border-radius: 999px;
   padding: 4px 12px;
+}
+.score-correct {
+  color: var(--green);
+  background: var(--green-bg);
+}
+.score-review {
+  color: #8a5a00;
+  background: #fdf6e7;
+}
+.score-missed {
+  color: var(--red);
+  background: var(--red-bg);
+}
+.score-now {
+  color: var(--navy-700);
+  background: #fff;
+  border: 1px solid var(--border);
+}
+.interview-prev-btn {
+  flex: 0 0 auto;
+  padding: 9px 14px;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .interview-status {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .interview-prev-btn {
+    width: 100%;
+  }
 }
 
 .server-down {
