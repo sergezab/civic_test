@@ -154,4 +154,72 @@ test.describe('Interview mode', () => {
     await expect(page.getByText('Got it on the retry')).toBeVisible()
     expect(gradeCalls).toBe(2)
   })
+
+  test('hands-free mode starts listening without a real microphone', async ({ page }) => {
+    await page.addInitScript(() => {
+      class FakeSpeechRecognition {
+        lang = ''
+        continuous = false
+        interimResults = false
+        onresult: ((event: unknown) => void) | null = null
+        onerror: ((event: unknown) => void) | null = null
+        onend: (() => void) | null = null
+
+        start() {
+          const state = window as typeof window & { __fakeStarts?: number }
+          state.__fakeStarts = (state.__fakeStarts ?? 0) + 1
+        }
+
+        stop() {
+          this.onend?.()
+        }
+
+        abort() {
+          this.onend?.()
+        }
+      }
+      class FakeAudio {
+        onplaying: (() => void) | null = null
+        onended: (() => void) | null = null
+        onerror: (() => void) | null = null
+
+        play() {
+          this.onplaying?.()
+          window.setTimeout(() => this.onended?.(), 0)
+          return Promise.resolve()
+        }
+
+        pause() {}
+      }
+
+      Object.defineProperty(window, 'webkitSpeechRecognition', {
+        value: FakeSpeechRecognition,
+        configurable: true,
+      })
+      Object.defineProperty(window, 'SpeechRecognition', {
+        value: FakeSpeechRecognition,
+        configurable: true,
+      })
+      Object.defineProperty(window, 'Audio', { value: FakeAudio, configurable: true })
+    })
+    await page.route('**/health', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+    )
+
+    await page.goto('/')
+    await clearAppStorage(page)
+    await page.reload()
+
+    await page.getByRole('button', { name: 'Interview' }).click()
+    await page.getByRole('button', { name: 'Start 10-question interview' }).click()
+    await page.getByRole('button', { name: 'Hands-free' }).click()
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => (window as typeof window & { __fakeStarts?: number }).__fakeStarts ?? 0),
+      )
+      .toBeGreaterThan(0)
+    await expect(page.getByText('Listening…')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible()
+  })
 })
