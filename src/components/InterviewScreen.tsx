@@ -401,6 +401,12 @@ export function InterviewScreen({
 
   useEffect(() => () => stopFeedbackAudio(), [stopFeedbackAudio]);
 
+  // Surface speech-recognition failures (network/not-allowed/audio-capture) so a
+  // dead mic isn't silently graded as "I didn't catch the answer".
+  useEffect(() => {
+    if (rec.error) ilog("iv", "recognition error", { error: rec.error });
+  }, [rec.error]);
+
   // ── Manual controls ───────────────────────────────────────────
   const manualStart = () => {
     setNetError(null);
@@ -681,6 +687,19 @@ export function InterviewScreen({
       )}
 
       <div className="answer-area">
+        {rec.error && (
+          <p className="net-error">
+            ⚠️ Speech recognition error: <strong>{rec.error}</strong>.
+            {rec.error === "network"
+              ? " Chrome's speech service needs an internet connection."
+              : rec.error === "not-allowed" || rec.error === "service-not-allowed"
+                ? " Allow microphone access for this site."
+                : rec.error === "audio-capture"
+                  ? " No microphone was found."
+                  : ""}{" "}
+            You can type your answer instead.
+          </p>
+        )}
         {stage === "ready" && (
           <div className="interview-prompt">
             {auto && !autoStarted ? (
