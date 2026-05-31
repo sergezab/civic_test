@@ -142,12 +142,17 @@ export function FlashScreen({
 
       <div className="footer-bar">
         {!flipped ? (
-          <button
-            className="btn btn-primary btn-wide"
-            onClick={() => setFlipped(true)}
-          >
-            Show the answer
-          </button>
+          <div className="flash-footer-actions">
+            <button
+              className="btn btn-primary"
+              onClick={() => setFlipped(true)}
+            >
+              Show the answer
+            </button>
+            <button className="btn btn-ghost" onClick={goNext}>
+              {isLast ? "Skip & finish" : "Skip →"}
+            </button>
+          </div>
         ) : (
           <button className="btn btn-primary btn-wide" onClick={goNext}>
             {isLast ? "Finish" : "Next card"}

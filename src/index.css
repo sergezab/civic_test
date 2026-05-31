@@ -542,6 +542,18 @@ button.choice:hover {
   box-shadow: var(--shadow-sm);
 }
 
+.flash-footer-actions {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  max-width: 640px;
+  justify-content: center;
+}
+.flash-footer-actions .btn {
+  flex: 1;
+  max-width: 300px;
+}
+
 .flash-nav {
   width: 100%;
   max-width: 700px;
