@@ -167,9 +167,6 @@ export function FlashScreen({
         <span className="progress-label">
           Card {index + 1} of {cards.length}
         </span>
-        <button className="flash-nav-btn" onClick={goNext}>
-          {isLast ? "Finish" : "Skip →"}
-        </button>
       </div>
       <div className="flash-bar">
         <div
