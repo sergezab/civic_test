@@ -4,6 +4,7 @@ import type { UseSpeech } from "../hooks/useSpeech";
 import type { Mode } from "./StartScreen";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useRecorder } from "../hooks/useRecorder";
+import { ilog, now, since } from "../utils/log";
 import {
   checkHealth,
   gradeAnswer,
@@ -15,7 +16,7 @@ import {
 
 interface InterviewScreenProps {
   questions: Question[];
-  mode: Mode;
+  mode: Mode; // "test" (early stop, 6/10) | "practice"
   speech: UseSpeech;
   isBookmarked: (id: number) => boolean;
   onToggleBookmark: (id: number) => void;
@@ -25,13 +26,16 @@ interface InterviewScreenProps {
 
 type Stage =
   | "ready"
-  | "recording"
+  | "listening"
   | "rec-audio"
   | "transcribing"
-  | "edit"
   | "grading"
-  | "result";
+  | "result"
+  | "edit";
 type Server = "checking" | "ok" | "down";
+type IvMode = "manual" | "auto";
+/** correct = right on first try; review = right only after a retry; missed = never right. */
+type Outcome = "correct" | "review" | "missed";
 
 interface LogEntry {
   id: number;
@@ -40,13 +44,17 @@ interface LogEntry {
   verdict: Verdict;
   correctAnswer: string;
   feedback: string;
+  outcome: Outcome;
+  attempts: number;
 }
 
-const PASS_MARK = 6; // USCIS: 6 of 10 correct
-const VERDICT_ICON: Record<Verdict, string> = {
+const PASS_MARK = 6;
+const SILENCE_MS = 2200; // auto: stop after this much quiet once speech started
+const NO_SPEECH_MS = 9000; // auto: give up waiting for any speech
+const OUTCOME_ICON: Record<Outcome, string> = {
   correct: "✓",
-  partial: "≈",
-  incorrect: "✕",
+  review: "↻",
+  missed: "✕",
 };
 
 export function InterviewScreen({
@@ -61,16 +69,72 @@ export function InterviewScreen({
   const rec = useSpeechRecognition();
   const recorder = useRecorder();
   const canRecord = !rec.supported && recorder.supported;
+  const autoAvailable = rec.supported; // hands-free needs Web Speech transcripts
+
+  const [ivMode, setIvMode] = useState<IvMode>(() => {
+    try {
+      const v = localStorage.getItem("iv-mode");
+      if (v === "auto" || v === "manual") return v;
+    } catch {
+      /* ignore */
+    }
+    return "manual";
+  });
+  const auto = ivMode === "auto" && autoAvailable;
+
+  const [retry, setRetry] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("iv-retry") === "1";
+    } catch {
+      return false;
+    }
+  });
+
   const [server, setServer] = useState<Server>("checking");
   const [index, setIndex] = useState(0);
-  const [stage, setStage] = useState<Stage>(rec.supported ? "ready" : "edit");
+  const [deck, setDeck] = useState<Question[]>(questions);
+  const [stage, setStage] = useState<Stage>("ready");
   const [answer, setAnswer] = useState("");
   const [result, setResult] = useState<GradeResult | null>(null);
+  const [attempt, setAttempt] = useState(1);
   const [netError, setNetError] = useState<string | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [done, setDone] = useState(false);
-  const [deck, setDeck] = useState<Question[]>(questions);
+  const [autoStarted, setAutoStarted] = useState(false);
+  const [paused, setPaused] = useState(false);
+
+  // Refs so delayed callbacks (audio onended, silence timers) read fresh values.
   const fbAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastReadRef = useRef<number | null>(null);
+  const autoRef = useRef(auto);
+  const pausedRef = useRef(paused);
+  const retryRef = useRef(retry);
+  const attemptRef = useRef(attempt);
+  const logRef = useRef(log);
+  const indexRef = useRef(index);
+  const deckRef = useRef(deck);
+  useEffect(() => void (autoRef.current = auto), [auto]);
+  useEffect(() => void (pausedRef.current = paused), [paused]);
+  useEffect(() => void (retryRef.current = retry), [retry]);
+  useEffect(() => void (attemptRef.current = attempt), [attempt]);
+  useEffect(() => void (logRef.current = log), [log]);
+  useEffect(() => void (indexRef.current = index), [index]);
+  useEffect(() => void (deckRef.current = deck), [deck]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("iv-mode", ivMode);
+    } catch {
+      /* ignore */
+    }
+  }, [ivMode]);
+  useEffect(() => {
+    try {
+      localStorage.setItem("iv-retry", retry ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [retry]);
 
   const q = deck[index];
 
@@ -82,68 +146,227 @@ export function InterviewScreen({
     setResult(null);
     setAnswer("");
     setNetError(null);
-    setStage(rec.supported ? "ready" : "edit");
+    setAttempt(1);
+    attemptRef.current = 1;
+    setStage("ready");
+    lastReadRef.current = null;
   };
 
-  // A fresh session was dealt (e.g. "New interview") → reset to its first question.
+  // Fresh session dealt (New interview) → reset.
   useEffect(() => {
     resetTo(questions);
+    setAutoStarted(false);
+    setPaused(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questions]);
 
-  // Check the grader is reachable.
+  // Grader reachability.
   useEffect(() => {
     const ctrl = new AbortController();
     checkHealth(ctrl.signal).then((ok) => setServer(ok ? "ok" : "down"));
     return () => ctrl.abort();
   }, []);
 
-  // Read each question aloud.
-  useEffect(() => {
-    if (q && server === "ok") speech.playOnce(`iv-${q.id}`, q.id, q.question);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q?.id, server]);
-
-  // When recording ends, move to the editable transcript.
-  useEffect(() => {
-    if (stage === "recording" && !rec.listening) {
-      setAnswer(rec.transcript);
-      setStage("edit");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rec.listening]);
-
   const stopFeedbackAudio = useCallback(() => {
     if (fbAudioRef.current) {
+      fbAudioRef.current.onended = null;
       fbAudioRef.current.pause();
       fbAudioRef.current = null;
     }
   }, []);
 
   const playFeedback = useCallback(
-    async (text: string) => {
+    async (text: string, onDone?: () => void) => {
       speech.stop();
-      const url = await synthesizeSpeech(text);
-      if (!url) return; // no TTS yet → text feedback only
+      let fired = false;
+      const finish = () => {
+        if (fired) return;
+        fired = true;
+        onDone?.();
+      };
+      const safety = window.setTimeout(finish, 20000); // never hang the auto loop
+
+      let url: string | null = null;
+      try {
+        url = await synthesizeSpeech(text);
+      } catch {
+        url = null;
+      }
+      if (!url) {
+        window.clearTimeout(safety);
+        setTimeout(finish, Math.min(6000, 1600 + text.length * 35));
+        return;
+      }
       stopFeedbackAudio();
       const audio = new Audio(url);
       fbAudioRef.current = audio;
-      audio.onended = () => URL.revokeObjectURL(url);
-      audio.play().catch(() => URL.revokeObjectURL(url));
+      const done = () => {
+        window.clearTimeout(safety);
+        URL.revokeObjectURL(url!);
+        finish();
+      };
+      audio.onended = done;
+      audio.onerror = done;
+      audio.play().catch(done);
     },
     [speech, stopFeedbackAudio],
   );
 
+  const beginListening = useCallback(() => {
+    if (!autoRef.current || pausedRef.current || !rec.supported) return;
+    rec.reset();
+    rec.start();
+    ilog("iv", "listening", { q: deckRef.current[indexRef.current]?.id, attempt: attemptRef.current });
+    setStage("listening");
+  }, [rec]);
+
+  // Read each question aloud; in hands-free, then start listening.
+  useEffect(() => {
+    if (!q || server !== "ok") return;
+    if (lastReadRef.current === q.id) return;
+    if (auto && !(autoStarted && !paused)) return; // wait for Start / resume
+    lastReadRef.current = q.id;
+    ilog("iv", "read question", { q: q.id, mode: auto ? "auto" : "manual" });
+    setStage("ready");
+    if (auto) {
+      speech.play(q.id, q.question, beginListening);
+    } else {
+      speech.play(q.id, q.question);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q?.id, server, auto, autoStarted, paused]);
+
+  // Decide what happens after grading, based on attempt + retry mode.
+  const decide = useCallback((res: GradeResult) => {
+    const isCorrect = res.verdict === "correct";
+    const canRetry = retryRef.current && !isCorrect && attemptRef.current === 1;
+    const outcome: Outcome = isCorrect
+      ? attemptRef.current === 1
+        ? "correct"
+        : "review"
+      : "missed";
+    return { canRetry, outcome };
+  }, []);
+
+  const commitOutcome = useCallback(
+    (res: GradeResult, outcome: Outcome) => {
+      stopFeedbackAudio();
+      speech.stop();
+      if (rec.listening) rec.stop();
+      const cq = deckRef.current[indexRef.current];
+      const entry: LogEntry = {
+        id: cq.id,
+        question: cq.question,
+        heard: res.heard,
+        verdict: res.verdict,
+        correctAnswer: res.correctAnswer,
+        feedback: res.feedback,
+        outcome,
+        attempts: attemptRef.current,
+      };
+      const newLog = [...logRef.current, entry];
+      setLog(newLog);
+      setResult(null);
+      setAnswer("");
+      setNetError(null);
+      setAttempt(1);
+      attemptRef.current = 1;
+
+      const firstTry = newLog.filter((e) => e.outcome === "correct").length;
+      const notFirstTry = newLog.length - firstTry;
+      const reachedEnd = indexRef.current + 1 >= deckRef.current.length;
+      // Real-exam early stop only when not in retry-practice mode.
+      const earlyStop =
+        mode === "test" &&
+        !retryRef.current &&
+        (firstTry >= PASS_MARK || notFirstTry > deckRef.current.length - PASS_MARK);
+      if (reachedEnd || earlyStop) {
+        ilog("iv", "interview complete", { correct: firstTry, of: newLog.length });
+        setDone(true);
+        return;
+      }
+      ilog("iv", "advance", { to: indexRef.current + 2, outcome });
+      setIndex(indexRef.current + 1);
+    },
+    [mode, rec, speech, stopFeedbackAudio],
+  );
+
+  const startRetry = useCallback(() => {
+    stopFeedbackAudio();
+    setResult(null);
+    setNetError(null);
+    attemptRef.current = 2;
+    setAttempt(2);
+    rec.reset();
+    ilog("iv", "retry", { q: deckRef.current[indexRef.current]?.id });
+    if (autoRef.current) beginListening();
+    else setStage("ready");
+  }, [beginListening, rec, stopFeedbackAudio]);
+
+  const submitText = useCallback(
+    async (raw: string) => {
+      const text = raw.trim();
+      const t0 = now();
+      speech.stop();
+      if (rec.listening) rec.stop();
+      setStage("grading");
+      setNetError(null);
+      const cq = deckRef.current[indexRef.current];
+      ilog("iv", "submit", {
+        q: cq.id,
+        attempt: attemptRef.current,
+        chars: text.length,
+        mode: autoRef.current ? "auto" : "manual",
+      });
+      try {
+        const res = await gradeAnswer(cq.question, cq.acceptableAnswers, text, cq.id);
+        ilog("iv", "graded", { q: cq.id, ms: since(t0), verdict: res.verdict });
+        setResult(res);
+        setStage("result");
+        const tf = now();
+        playFeedback(res.feedback, () => {
+          ilog("iv", "feedback done", { q: cq.id, ms: since(tf) });
+          if (!autoRef.current || pausedRef.current) return; // manual: buttons drive it
+          const { canRetry, outcome } = decide(res);
+          if (canRetry) startRetry();
+          else commitOutcome(res, outcome);
+        });
+      } catch {
+        ilog("iv", "grade error", { q: cq.id, ms: since(t0) });
+        setNetError("Couldn't reach the grader — try again.");
+        setStage("ready");
+        if (autoRef.current) setPaused(true);
+      }
+    },
+    [commitOutcome, decide, playFeedback, rec, speech, startRetry],
+  );
+
+  // Hands-free silence detection: submit after a pause (or give up on silence).
+  useEffect(() => {
+    if (!auto || stage !== "listening") return;
+    const current = rec.transcript;
+    const delay = current ? SILENCE_MS : NO_SPEECH_MS;
+    const t = window.setTimeout(() => {
+      submitText(current);
+    }, delay);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, stage, rec.transcript]);
+
   useEffect(() => () => stopFeedbackAudio(), [stopFeedbackAudio]);
 
-  if (!q) return null;
-
-  const startRecording = () => {
+  // ── Manual controls ───────────────────────────────────────────
+  const manualStart = () => {
     setNetError(null);
     rec.reset();
     setAnswer("");
     rec.start();
-    setStage("recording");
+    setStage("listening");
+  };
+  const manualStopSubmit = () => {
+    const text = rec.transcript;
+    rec.stop();
+    submitText(text);
   };
 
   const startAudioRecording = async () => {
@@ -153,78 +376,65 @@ export function InterviewScreen({
     if (ok) setStage("rec-audio");
     else setNetError("Couldn't access the microphone — type your answer instead.");
   };
-
   const stopAudioRecording = async () => {
     const blob = await recorder.stop();
     if (!blob) {
-      setStage("edit");
+      setStage("ready");
       return;
     }
     setStage("transcribing");
     try {
-      setAnswer(await transcribeAudio(blob));
+      const text = await transcribeAudio(blob);
+      submitText(text);
     } catch {
       setNetError("Transcription failed — type your answer instead.");
+      setStage("ready");
     }
-    setStage("edit");
   };
 
-  const submit = async () => {
-    const text = answer.trim();
-    if (!text) return;
-    speech.stop();
-    setStage("grading");
+  // Free redo (re-answer without scoring it as a new attempt).
+  const redo = () => {
+    stopFeedbackAudio();
+    setResult(null);
     setNetError(null);
-    try {
-      const res = await gradeAnswer(q.question, q.acceptableAnswers, text, q.id);
-      setResult(res);
-      setStage("result");
-      void playFeedback(res.feedback);
-    } catch {
-      setNetError("Couldn't reach the grader. Check the server and try again.");
-      setStage("edit");
-    }
-  };
-
-  const tryAgain = () => {
-    stopFeedbackAudio();
-    setResult(null);
-    setAnswer("");
     rec.reset();
-    setStage(rec.supported ? "ready" : "edit");
+    if (auto) beginListening();
+    else setStage("ready");
   };
 
-  const next = () => {
-    if (!result) return;
+  const startHandsFree = () => {
+    setNetError(null);
+    setPaused(false);
+    lastReadRef.current = null; // force re-read + listen for current question
+    setAutoStarted(true);
+  };
+  const pauseAuto = () => {
+    setPaused(true);
+    if (rec.listening) rec.stop();
     stopFeedbackAudio();
     speech.stop();
-    const entry: LogEntry = {
-      id: q.id,
-      question: q.question,
-      heard: result.heard,
-      verdict: result.verdict,
-      correctAnswer: result.correctAnswer,
-      feedback: result.feedback,
-    };
-    const newLog = [...log, entry];
-    setLog(newLog);
+    setStage("ready");
+  };
+  const resumeAuto = () => {
+    setPaused(false);
+    lastReadRef.current = null;
+  };
 
-    const correct = newLog.filter((e) => e.verdict === "correct").length;
-    const wrong = newLog.length - correct;
-    const reachedEnd = index + 1 >= deck.length;
-    const decided =
-      mode === "test" && (correct >= PASS_MARK || wrong > deck.length - PASS_MARK);
-
+  const switchMode = (next: IvMode) => {
+    if (next === ivMode) return;
+    if (rec.listening) rec.stop();
+    stopFeedbackAudio();
+    speech.stop();
+    setIvMode(next);
+    setStage("ready");
     setResult(null);
-    setAnswer("");
-    rec.reset();
-
-    if (reachedEnd || decided) {
-      setDone(true);
-      return;
+    if (next === "auto" && autoAvailable) {
+      lastReadRef.current = null;
+      setPaused(false);
+      setAutoStarted(true);
+    } else {
+      setAutoStarted(false);
     }
-    setIndex(index + 1);
-    setStage(rec.supported ? "ready" : "edit");
   };
 
   // ── Server down ───────────────────────────────────────────────
@@ -233,13 +443,9 @@ export function InterviewScreen({
       <div className="screen interview-screen">
         <div className="server-down">
           <h2>The interview grader isn’t running</h2>
-          <p>
-            Interview mode needs the local grading server. Start it, then reload:
-          </p>
+          <p>Interview mode needs the local grading server. Start it, then reload:</p>
           <pre>cd server &amp;&amp; uv run uvicorn app:app --port 8088</pre>
-          <p className="muted">
-            Quiz and Flash-card modes work without it.
-          </p>
+          <p className="muted">Quiz and Flash-card modes work without it.</p>
           <button className="btn btn-primary" onClick={onHome}>
             Back to start
           </button>
@@ -250,16 +456,17 @@ export function InterviewScreen({
 
   // ── Results ───────────────────────────────────────────────────
   if (done) {
-    const correct = log.filter((e) => e.verdict === "correct").length;
-    const passed = correct >= PASS_MARK;
-    const missed = deck.filter((dq) =>
-      log.some((e) => e.id === dq.id && e.verdict !== "correct"),
+    const firstTry = log.filter((e) => e.outcome === "correct").length;
+    const reviewed = log.filter((e) => e.outcome === "review").length;
+    const passed = firstTry >= PASS_MARK;
+    const toPractice = deck.filter((dq) =>
+      log.some((e) => e.id === dq.id && e.outcome !== "correct"),
     );
     return (
       <div className="screen results-screen">
         <p className="eyebrow">Interview complete</p>
         <div className={`result-medallion ${passed ? "is-pass" : "is-fail"}`}>
-          <span className="result-score">{correct}</span>
+          <span className="result-score">{firstTry}</span>
           <span className="result-of">/ {log.length}</span>
         </div>
         <h1 className="result-title">
@@ -271,19 +478,23 @@ export function InterviewScreen({
         </h1>
         <p className="result-detail">
           {mode === "test"
-            ? `You need ${PASS_MARK} of 10 correct to pass. You answered ${correct} correctly.`
-            : `You answered ${correct} of ${log.length} correctly.`}
+            ? `You need ${PASS_MARK} of 10 correct to pass. You got ${firstTry} on the first try`
+            : `You got ${firstTry} of ${log.length} on the first try`}
+          {reviewed > 0 ? ` (+${reviewed} on a retry).` : "."}
         </p>
 
         <div className="transcript-review">
           {log.map((e, i) => (
-            <div key={i} className={`tr-row tr-${e.verdict}`}>
-              <span className="tr-icon">{VERDICT_ICON[e.verdict]}</span>
+            <div key={i} className={`tr-row tr-${e.outcome}`}>
+              <span className="tr-icon">{OUTCOME_ICON[e.outcome]}</span>
               <div className="tr-body">
                 <p className="tr-q">{e.question}</p>
                 <p className="tr-heard">You said: “{e.heard || "—"}”</p>
-                {e.verdict !== "correct" && (
-                  <p className="tr-answer">Answer: {e.correctAnswer}</p>
+                {e.outcome !== "correct" && (
+                  <p className="tr-answer">
+                    {e.outcome === "review" ? "Got it on retry · " : ""}
+                    Answer: {e.correctAnswer}
+                  </p>
                 )}
               </div>
             </div>
@@ -291,13 +502,13 @@ export function InterviewScreen({
         </div>
 
         <div className="start-actions">
-          {missed.length > 0 && (
-            <button className="btn btn-primary" onClick={() => resetTo(missed)}>
-              Drill {missed.length} missed
+          {toPractice.length > 0 && (
+            <button className="btn btn-primary" onClick={() => resetTo(toPractice)}>
+              Practice {toPractice.length} you missed
             </button>
           )}
           <button
-            className={`btn ${missed.length > 0 ? "btn-ghost" : "btn-primary"}`}
+            className={`btn ${toPractice.length > 0 ? "btn-ghost" : "btn-primary"}`}
             onClick={onRestart}
           >
             New interview
@@ -311,11 +522,52 @@ export function InterviewScreen({
   }
 
   // ── Active question ───────────────────────────────────────────
-  const correctSoFar = log.filter((e) => e.verdict === "correct").length;
+  const correctSoFar = log.filter((e) => e.outcome === "correct").length;
   const bookmarked = isBookmarked(q.id);
+
+  const resultCorrect = result?.verdict === "correct";
+  const retryAvailable = retry && !!result && !resultCorrect && attempt === 1;
+  const resultOutcome: Outcome = result
+    ? resultCorrect
+      ? attempt === 1
+        ? "correct"
+        : "review"
+      : "missed"
+    : "missed";
 
   return (
     <div className="screen interview-screen">
+      <div className="iv-controls">
+        <div className="mode-toggle" role="group" aria-label="Interview mode">
+          <button
+            className={ivMode === "manual" ? "is-active" : ""}
+            onClick={() => switchMode("manual")}
+          >
+            ✋ Manual
+          </button>
+          <button
+            className={ivMode === "auto" ? "is-active" : ""}
+            onClick={() => switchMode("auto")}
+            disabled={!autoAvailable}
+            title={
+              autoAvailable
+                ? "Reads, listens, grades and advances by itself"
+                : "Hands-free needs Chrome/Edge speech recognition"
+            }
+          >
+            🔊 Hands-free
+          </button>
+        </div>
+        <label className="retry-toggle" title="On a wrong answer, hear the explanation then get one more try">
+          <input
+            type="checkbox"
+            checked={retry}
+            onChange={(e) => setRetry(e.target.checked)}
+          />
+          ↻ Retry wrong answers
+        </label>
+      </div>
+
       <div className="question-bar">
         <div className="question-meta">
           {q.senior && (
@@ -323,6 +575,7 @@ export function InterviewScreen({
               ★ 65/20
             </span>
           )}
+          {attempt > 1 && <span className="attempt-badge">2nd try</span>}
           <button
             className={`bookmark-btn${bookmarked ? " is-bookmarked" : ""}`}
             onClick={() => onToggleBookmark(q.id)}
@@ -335,12 +588,8 @@ export function InterviewScreen({
         <h2 className="question-text">{q.question}</h2>
       </div>
 
-      {speech.supported &&
-        (stage === "ready" || stage === "edit" || stage === "result") && (
-        <button
-          className="repeat-btn"
-          onClick={() => speech.play(q.id, q.question)}
-        >
+      {speech.supported && (stage === "ready" || stage === "result") && (
+        <button className="repeat-btn" onClick={() => speech.play(q.id, q.question)}>
           {speech.speaking ? "🔊 Playing…" : "↻ Repeat the question"}
         </button>
       )}
@@ -348,17 +597,26 @@ export function InterviewScreen({
       <div className="answer-area">
         {stage === "ready" && (
           <div className="interview-prompt">
-            <p>When you’re ready, answer the officer out loud.</p>
+            {auto && !autoStarted ? (
+              <p>Hands-free: I’ll read each question, listen, grade, and move on.</p>
+            ) : auto && paused ? (
+              <p>Paused.</p>
+            ) : attempt > 1 ? (
+              <p>One more try — answer the officer out loud.</p>
+            ) : (
+              <p>When you’re ready, answer the officer out loud.</p>
+            )}
             <p className="privacy-note">
               🔒 Your answer is transcribed and graded to give feedback — audio
               isn’t stored.
             </p>
+            {netError && <p className="net-error">{netError}</p>}
           </div>
         )}
 
-        {stage === "recording" && (
+        {stage === "listening" && (
           <div className="live-transcript" aria-live="polite">
-            <span className="rec-dot" /> Listening…
+            <span className="rec-dot" /> {auto ? "Listening…" : "Listening — tap stop when done."}
             <p>{rec.transcript || "Speak your answer."}</p>
           </div>
         )}
@@ -375,25 +633,6 @@ export function InterviewScreen({
           </div>
         )}
 
-        {stage === "edit" && (
-          <div className="answer-edit">
-            <label htmlFor="answer">Your answer (edit if mis-heard):</label>
-            <textarea
-              id="answer"
-              className="answer-input"
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              placeholder={
-                rec.supported
-                  ? "Tap the mic above, or type your answer here."
-                  : "Type your answer here."
-              }
-              rows={3}
-            />
-            {netError && <p className="net-error">{netError}</p>}
-          </div>
-        )}
-
         {stage === "grading" && (
           <div className="interview-prompt grading">
             <span className="rec-dot" /> The officer is considering your answer…
@@ -403,23 +642,49 @@ export function InterviewScreen({
         {stage === "result" && result && (
           <div className={`officer-result verdict-${result.verdict}`}>
             <div className="verdict-badge">
-              <span className="verdict-icon">{VERDICT_ICON[result.verdict]}</span>
+              <span className="verdict-icon">{OUTCOME_ICON[resultOutcome]}</span>
               <span className="verdict-label">{result.verdict}</span>
             </div>
             <p className="officer-feedback">{result.feedback}</p>
             <p className="heard-line">You said: “{result.heard || "—"}”</p>
-            {result.verdict !== "correct" && (
+            {!resultCorrect && (
               <p className="answer-line">Accepted answer: {result.correctAnswer}</p>
+            )}
+            {resultCorrect && attempt > 1 && (
+              <p className="answer-line">Got it on the retry — flagged for review.</p>
+            )}
+            {auto && !paused && (
+              <p className="auto-next-hint">
+                {retryAvailable ? "Let’s try that one again…" : "Next question coming up…"}
+              </p>
             )}
           </div>
         )}
       </div>
 
       <div className="footer-bar interview-footer">
-        {stage === "ready" && (
+        {/* Hands-free controls */}
+        {auto && stage === "ready" && !autoStarted && (
+          <button className="mic-btn" onClick={startHandsFree}>
+            ▶ Start hands-free
+          </button>
+        )}
+        {auto && stage === "ready" && autoStarted && paused && (
+          <button className="mic-btn" onClick={resumeAuto}>
+            ▶ Resume
+          </button>
+        )}
+        {auto && (stage === "listening" || stage === "grading") && (
+          <button className="btn btn-ghost" onClick={pauseAuto}>
+            ⏸ Pause
+          </button>
+        )}
+
+        {/* Manual answer controls */}
+        {!auto && stage === "ready" && (
           <>
             {rec.supported ? (
-              <button className="mic-btn" onClick={startRecording}>
+              <button className="mic-btn" onClick={manualStart}>
                 🎤 Answer out loud
               </button>
             ) : canRecord ? (
@@ -432,54 +697,76 @@ export function InterviewScreen({
             </button>
           </>
         )}
-
-        {stage === "recording" && (
-          <button className="mic-btn is-recording" onClick={rec.stop}>
-            ■ Stop &amp; review
+        {!auto && stage === "listening" && (
+          <button className="mic-btn is-recording" onClick={manualStopSubmit}>
+            ■ Stop &amp; submit
           </button>
         )}
-
-        {stage === "rec-audio" && (
+        {!auto && stage === "rec-audio" && (
           <button className="mic-btn is-recording" onClick={stopAudioRecording}>
-            ■ Stop &amp; transcribe
+            ■ Stop &amp; submit
           </button>
         )}
 
-        {stage === "edit" && (
-          <>
-            <button
-              className="btn btn-primary btn-wide"
-              onClick={submit}
-              disabled={!answer.trim()}
-            >
-              Submit answer
-            </button>
-            {rec.supported ? (
-              <button className="btn btn-ghost" onClick={startRecording}>
-                🎤 Re-record
-              </button>
-            ) : canRecord ? (
-              <button className="btn btn-ghost" onClick={startAudioRecording}>
-                🎤 Re-record
-              </button>
-            ) : null}
-          </>
-        )}
-
+        {/* Result actions */}
         {stage === "result" && (
           <>
-            <button
-              className={`btn btn-wide ${result?.verdict === "correct" ? "btn-correct" : "btn-primary"}`}
-              onClick={next}
-            >
-              {index + 1 >= deck.length ? "Finish interview" : "Next question"}
-            </button>
-            <button className="btn btn-ghost" onClick={tryAgain}>
-              Try again
-            </button>
+            {!auto && retryAvailable && (
+              <>
+                <button className="btn btn-primary btn-wide" onClick={startRetry}>
+                  🎤 Try again
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => result && commitOutcome(result, "missed")}
+                >
+                  Skip — mark for practice
+                </button>
+              </>
+            )}
+            {!auto && !retryAvailable && (
+              <>
+                <button
+                  className={`btn btn-wide ${resultCorrect ? "btn-correct" : "btn-primary"}`}
+                  onClick={() => result && commitOutcome(result, resultOutcome)}
+                >
+                  {index + 1 >= deck.length ? "Finish interview" : "Next question"}
+                </button>
+                <button className="btn btn-ghost" onClick={redo}>
+                  Try again
+                </button>
+              </>
+            )}
+            {auto && (
+              <button className="btn btn-ghost" onClick={pauseAuto}>
+                ⏸ Pause
+              </button>
+            )}
           </>
         )}
       </div>
+
+      {/* Typed fallback */}
+      {stage === "edit" && (
+        <div className="answer-edit">
+          <label htmlFor="answer">Type your answer:</label>
+          <textarea
+            id="answer"
+            className="answer-input"
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            rows={3}
+          />
+          {netError && <p className="net-error">{netError}</p>}
+          <button
+            className="btn btn-primary btn-wide"
+            onClick={() => submitText(answer)}
+            disabled={!answer.trim()}
+          >
+            Submit answer
+          </button>
+        </div>
+      )}
 
       <div className="interview-status">
         <span className="progress-label">

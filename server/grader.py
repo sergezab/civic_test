@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import json
 import re
+import time
 
 import requests
 
 import config
+from logutil import log
 
 SYSTEM_PROMPT = """You are a friendly but fair USCIS officer giving the oral U.S. citizenship civics test.
 You receive the official accepted answers and what the applicant said (transcribed from speech).
@@ -144,6 +146,7 @@ def grade(question: str, accepted: list[str], transcript: str) -> dict:
             "fallback": True,
         }
 
+    t0 = time.perf_counter()
     try:
         if config.GRADER_PROVIDER == "ollama":
             raw = _ollama_chat(
@@ -154,6 +157,7 @@ def grade(question: str, accepted: list[str], transcript: str) -> dict:
             )
         else:
             raw = _llm_core_chat(question, accepted, transcript)
+        llm_ms = (time.perf_counter() - t0) * 1000
 
         data = _extract_json(raw)
         verdict = str(data.get("verdict", "")).lower().strip()
@@ -161,6 +165,13 @@ def grade(question: str, accepted: list[str], transcript: str) -> dict:
             raise ValueError(f"unexpected verdict {verdict!r}")
         feedback = str(data.get("feedback", "")).strip() or "Thanks for your answer."
         correct = str(data.get("correctAnswer", "")).strip() or (accepted[0] if accepted else "")
+        log.info(
+            "grade llm=%.0fms verdict=%s model=%s provider=%s",
+            llm_ms,
+            verdict,
+            config.GRADER_MODEL,
+            config.GRADER_PROVIDER,
+        )
         return {
             "verdict": verdict,
             "feedback": feedback,
@@ -169,7 +180,9 @@ def grade(question: str, accepted: list[str], transcript: str) -> dict:
             "model": config.GRADER_MODEL,
             "fallback": False,
         }
-    except Exception:
+    except Exception as exc:
+        llm_ms = (time.perf_counter() - t0) * 1000
+        log.warning("grade FALLBACK after %.0fms (%s: %s)", llm_ms, type(exc).__name__, exc)
         result = _fallback(question, accepted, transcript)
         result["heard"] = transcript
         result["model"] = None

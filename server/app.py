@@ -19,6 +19,7 @@ import config
 import grader
 import stt as stt_mod
 import tts as tts_mod
+from logutil import log
 
 app = FastAPI(title="Civics Interview API", version="0.1.0")
 
@@ -74,7 +75,18 @@ def grade_endpoint(req: GradeRequest, request: Request):
     if not accepted:
         accepted = ["(no accepted answer supplied)"]
 
-    return grader.grade(req.question, accepted, transcript)
+    t0 = time.perf_counter()
+    result = grader.grade(req.question, accepted, transcript)
+    log.info(
+        "/grade q=%s chars=%d total=%.0fms verdict=%s fallback=%s ip=%s",
+        req.questionId,
+        len(transcript),
+        (time.perf_counter() - t0) * 1000,
+        result["verdict"],
+        result["fallback"],
+        ip,
+    )
+    return result
 
 
 class TTSRequest(BaseModel):
@@ -86,7 +98,14 @@ def tts_endpoint(req: TTSRequest, request: Request):
     ip = request.client.host if request.client else "unknown"
     if not _rate_ok(ip):
         return JSONResponse(status_code=429, content={"error": "rate_limited"})
+    t0 = time.perf_counter()
     wav = tts_mod.synthesize(req.text)
+    log.info(
+        "/tts chars=%d bytes=%d %.0fms",
+        len(req.text or ""),
+        len(wav) if wav else 0,
+        (time.perf_counter() - t0) * 1000,
+    )
     if not wav:
         return JSONResponse(status_code=503, content={"error": "tts_unavailable"})
     return Response(content=wav, media_type="audio/wav")
@@ -104,8 +123,16 @@ async def stt_endpoint(request: Request, file: UploadFile = File(...)):
         return JSONResponse(status_code=413, content={"error": "audio_too_large"})
     name = file.filename or "audio.webm"
     suffix = os.path.splitext(name)[1] or ".webm"
+    t0 = time.perf_counter()
     try:
         text = stt_mod.transcribe(data, suffix=suffix)
     except Exception:
+        log.warning("/stt failed after %.0fms", (time.perf_counter() - t0) * 1000)
         return JSONResponse(status_code=500, content={"error": "stt_failed"})
+    log.info(
+        "/stt bytes=%d chars=%d %.0fms",
+        len(data),
+        len(text),
+        (time.perf_counter() - t0) * 1000,
+    )
     return {"text": text}

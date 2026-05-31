@@ -9,8 +9,10 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 import config
+from logutil import log
 
 
 def _read_and_unlink(path: str) -> bytes | None:
@@ -80,11 +82,20 @@ def synthesize(text: str) -> bytes | None:
     text = (text or "").strip()[:600]
     if not text:
         return None
+    t0 = time.perf_counter()
+    wav: bytes | None = None
+    engine = "say"
     if config.TTS_ENGINE in ("piper", "auto"):
         wav = _piper_wav(text)
-        if wav:
-            return wav
-        if config.TTS_ENGINE == "piper":
-            # explicit piper but it failed → try say as last resort
-            return _say_wav(text)
-    return _say_wav(text)
+        engine = "piper"
+    if not wav:
+        wav = _say_wav(text)  # explicit say, or piper fallback
+        engine = "say"
+    log.info(
+        "tts engine=%s chars=%d %.0fms ok=%s",
+        engine,
+        len(text),
+        (time.perf_counter() - t0) * 1000,
+        bool(wav),
+    )
+    return wav

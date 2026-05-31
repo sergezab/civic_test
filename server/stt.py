@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 
 import config
+from logutil import log
 
 _model = None
 
@@ -29,9 +31,17 @@ def transcribe(audio_bytes: bytes, suffix: str = ".webm") -> str:
     os.write(fd, audio_bytes)
     os.close(fd)
     try:
-        model = _get_model()
+        t0 = time.perf_counter()
+        model = _get_model()  # first call downloads/loads the model (slow)
         segments, _info = model.transcribe(path, language="en", vad_filter=True)
-        return " ".join(seg.text.strip() for seg in segments).strip()
+        text = " ".join(seg.text.strip() for seg in segments).strip()
+        log.info(
+            "stt transcribe %.0fms chars=%d bytes=%d",
+            (time.perf_counter() - t0) * 1000,
+            len(text),
+            len(audio_bytes),
+        )
+        return text
     finally:
         try:
             os.unlink(path)
