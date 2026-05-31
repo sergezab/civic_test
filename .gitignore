@@ -49,3 +49,10 @@ server/voices/
 /playwright-report/
 /test-results/
 .playwright-mcp/
+
+# Python (server backend + pytest)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/

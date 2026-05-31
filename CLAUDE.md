@@ -153,14 +153,48 @@ To regenerate audio after editing questions: `node scripts/generate-audio.mjs` (
 
 ## Tests
 
-### Vitest (fast, no browser)
+Both layers run their suites in parallel across all cores. One command runs everything:
+
 ```bash
-pnpm test --run
+pnpm test:all        # backend (pytest-xdist) + frontend (vitest), parallel
+bash bin/run_tests.sh be   # backend only      (alias: pnpm test:server)
+bash bin/run_tests.sh fe   # frontend only
 ```
-Test files live next to source (`*.test.ts`):
+
+`bin/run_tests.sh` is the unified runner — backend uses `pytest -n auto --dist=loadfile`
+(one test file per worker), frontend uses `vitest run` (forks a worker per file).
+Toggle/limit backend parallelism with `PYTEST_XDIST=0` (serial, for debugging) or
+`PYTEST_XDIST_WORKERS=N`.
+
+> Parallelism pays off as the suite grows: worker spin-up (~1s) makes xdist *slower*
+> than serial for today's ~34 tiny backend tests, but the harness scales without change.
+
+### Frontend — Vitest (fast, no browser)
+```bash
+pnpm test --run      # or: pnpm test:run
+```
+Test files live next to source (`*.test.ts`). Vitest parallelizes files by default:
 - `src/utils/quiz.test.ts` — shuffle/sample/buildChoices
 - `src/utils/url.test.ts` — URL param read/write
 - `src/hooks/useBookmarks.test.ts` — bookmark toggle + localStorage persistence
+
+### Backend — pytest (`server/`)
+```bash
+# one-time: install dev deps into the uv venv
+VIRTUAL_ENV=server/.venv uv pip install -r server/requirements-dev.txt
+
+server/.venv/bin/python -m pytest server/tests                       # serial
+server/.venv/bin/python -m pytest server/tests -n auto --dist=loadfile  # parallel
+```
+Network-free tests (LLM / Whisper / Piper all monkeypatched) in `server/tests/`:
+- `test_config.py` — origins parsing + runtime defaults
+- `test_grader.py` — JSON extraction, deterministic fallback, LLM happy/error paths
+- `test_app.py` — `/health`, `/grade`, `/tts`, `/stt` via FastAPI `TestClient` + rate limiting
+- `test_tts.py` — engine selection / fallback / WAV reader
+- `test_stt.py` — segment joining + tempfile cleanup
+
+Config: `server/pytest.ini` (pythonpath, 30s per-test timeout). `pytest-xdist` /
+`pytest-timeout` / `pytest-cov` are the "special libraries" — in `server/requirements-dev.txt`.
 
 ### Playwright (e2e)
 ```bash
@@ -173,8 +207,9 @@ Tests in `e2e/app.spec.ts`: start screen, quiz URL state, bookmark toggle, flash
 
 ## After any code change
 
-1. `pnpm test --run` — all Vitest tests must pass
+1. `pnpm test:all` — all Vitest **and** pytest suites must pass (or `pnpm test --run` for frontend-only changes)
 2. `npx tsc --noEmit` — TypeScript must compile clean
 3. `pnpm lint` — no lint errors
 4. If you changed `questions.ts` structure, verify `buildChoices` still works
 5. If you changed URL params, update `e2e/app.spec.ts` URL assertions
+6. If you changed `server/`, run `bash bin/run_tests.sh be`

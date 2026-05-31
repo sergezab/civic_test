@@ -11,6 +11,9 @@
     "preview": "vite preview",
     "gen:audio": "node scripts/generate-audio.mjs",
     "test": "vitest",
+    "test:run": "vitest run",
+    "test:server": "bash bin/run_tests.sh be",
+    "test:all": "bash bin/run_tests.sh",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },

@@ -1,0 +1,7 @@
+# Test/dev dependencies for the interview backend. Install with:
+#   server/.venv/bin/pip install -r server/requirements-dev.txt
+# The runtime deps live in requirements.txt.
+pytest>=8.0
+pytest-xdist>=3.0     # parallel execution: `pytest -n auto --dist=loadfile`
+pytest-timeout>=2.0   # per-test timeout (default 30s, see pytest.ini)
+pytest-cov>=5.0       # coverage: `pytest --cov`
