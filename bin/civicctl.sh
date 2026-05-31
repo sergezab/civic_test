@@ -193,8 +193,8 @@ cmd_start() {
         warn "Frontend already running (PID $(cat "$FRONTEND_PID_FILE"))"
     else
         if [[ ! -d "${REPO_ROOT}/node_modules" ]]; then
-            info "Installing frontend dependencies (pnpm install)…"
-            (cd "$REPO_ROOT" && pnpm install)
+            info "Installing frontend dependencies (npm install)…"
+            (cd "$REPO_ROOT" && npm install)
         fi
         local scheme="http"
         [[ "$UI_HTTPS" == "1" ]] && scheme="https"
@@ -211,7 +211,7 @@ cmd_start() {
         (
             cd "$REPO_ROOT" || exit 1
             # HTTPS=1 makes vite.config.ts enable the basicSsl plugin (self-signed cert).
-            API_PROXY="$API_PROXY_TARGET" HTTPS="$UI_HTTPS" nohup pnpm exec vite --host "$VITE_BIND_HOST" --port "$VITE_BIND_PORT" --strictPort \
+            API_PROXY="$API_PROXY_TARGET" HTTPS="$UI_HTTPS" nohup npm exec --no -- vite --host "$VITE_BIND_HOST" --port "$VITE_BIND_PORT" --strictPort \
                 >> "$FRONTEND_LOG" 2>&1 &
             echo $! > "$FRONTEND_PID_FILE"
         )
@@ -344,8 +344,8 @@ cmd_repair() {
 
     info "Reinstalling frontend dependencies…"
     rm -rf "$REPO_ROOT/node_modules"
-    if (cd "$REPO_ROOT" && pnpm install); then ok "Frontend deps installed"
-    else fail "pnpm install failed"; ((errors++)); fi
+    if (cd "$REPO_ROOT" && npm install); then ok "Frontend deps installed"
+    else fail "npm install failed"; ((errors++)); fi
 
     echo ""
     [ "$errors" -eq 0 ] && ok "Repair complete — run: bash bin/civicctl.sh start" \

@@ -28,19 +28,19 @@ first, then proceed with the symbolic tools.
 ## Quick commands
 
 ```bash
-pnpm dev          # frontend dev server only → http://localhost:5173
-pnpm build        # type-check + bundle to dist/
-pnpm test --run   # Vitest unit tests (fast, no browser)
-pnpm test         # Vitest watch mode
-pnpm test:e2e     # Playwright e2e (starts dev server automatically)
-pnpm lint         # ESLint
+npm run dev       # frontend dev server only → http://localhost:5173
+npm run build     # type-check + bundle to dist/
+npm run test:run  # Vitest unit tests (fast, no browser)
+npm test          # Vitest watch mode
+npm run test:e2e  # Playwright e2e (starts dev server automatically)
+npm run lint      # ESLint
 ```
 
 ### Service manager — `bin/civicctl.sh`
 
 Runs **both** the frontend (Vite :5173) and the Interview backend (uvicorn :8090)
 in the background with PID tracking, health checks, and logs. Use this instead of
-`pnpm dev` when you need Interview mode (`?format=interview`) to work — `pnpm dev`
+`npm run dev` when you need Interview mode (`?format=interview`) to work — `npm run dev`
 alone starts only the frontend, so the interview API calls fail.
 
 ```bash
@@ -49,7 +49,7 @@ bash bin/civicctl.sh stop       # stop both, free both ports
 bash bin/civicctl.sh restart    # stop then start
 bash bin/civicctl.sh status     # running state + /health + recent log tails
 bash bin/civicctl.sh logs       # live colour-coded tail ([BE]/[FE]); also: logs backend|frontend
-bash bin/civicctl.sh repair     # reinstall pnpm deps + verify/create server venv
+bash bin/civicctl.sh repair     # reinstall npm deps + verify/create server venv
 ```
 
 Options (for `start`/`restart`/`status`): `--port` (backend, default 8090;
@@ -176,8 +176,8 @@ To regenerate audio after editing questions: `node scripts/generate-audio.mjs` (
 Both layers run their suites in parallel across all cores. One command runs everything:
 
 ```bash
-pnpm test:all        # backend (pytest-xdist) + frontend (vitest), parallel
-bash bin/run_tests.sh be   # backend only      (alias: pnpm test:server)
+npm run test:all     # backend (pytest-xdist) + frontend (vitest), parallel
+bash bin/run_tests.sh be   # backend only      (alias: npm run test:server)
 bash bin/run_tests.sh fe   # frontend only
 ```
 
@@ -191,7 +191,7 @@ Toggle/limit backend parallelism with `PYTEST_XDIST=0` (serial, for debugging) o
 
 ### Frontend — Vitest (fast, no browser)
 ```bash
-pnpm test --run      # or: pnpm test:run
+npm run test:run     # or: npm test -- --run
 ```
 Test files live next to source (`*.test.ts`). Vitest parallelizes files by default:
 - `src/utils/quiz.test.ts` — shuffle/sample/buildChoices
@@ -218,8 +218,8 @@ Config: `server/pytest.ini` (pythonpath, 30s per-test timeout). `pytest-xdist` /
 
 ### Playwright (e2e)
 ```bash
-pnpm test:e2e          # launches dev server automatically
-pnpm test:e2e --ui     # interactive UI
+npm run test:e2e       # launches dev server automatically
+npm run test:e2e:ui    # interactive UI
 ```
 Tests in `e2e/app.spec.ts`: start screen, quiz URL state, bookmark toggle, flash card mode.
 
@@ -227,9 +227,9 @@ Tests in `e2e/app.spec.ts`: start screen, quiz URL state, bookmark toggle, flash
 
 ## After any code change
 
-1. `pnpm test:all` — all Vitest **and** pytest suites must pass (or `pnpm test --run` for frontend-only changes)
+1. `npm run test:all` — all Vitest **and** pytest suites must pass (or `npm run test:run` for frontend-only changes)
 2. `npx tsc --noEmit` — TypeScript must compile clean
-3. `pnpm lint` — no lint errors
+3. `npm run lint` — no lint errors
 4. If you changed `questions.ts` structure, verify `buildChoices` still works
 5. If you changed URL params, update `e2e/app.spec.ts` URL assertions
 6. If you changed `server/`, run `bash bin/run_tests.sh be`
