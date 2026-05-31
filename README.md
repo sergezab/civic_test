@@ -18,8 +18,11 @@ governor, capital) filled in from `uscis.gov/citizenship/testupdates`.
 | Quiz — multiple choice + feedback | Flash cards — flip to the answer |
 |---|---|
 | ![Quiz](docs/screenshots/shot-quiz.png) | ![Flash cards](docs/screenshots/shot-flash.png) |
-| **Interview — Hands-free / Manual / Retry + per-answer timer** | **Interview — answering with the countdown** |
-| ![Interview controls](docs/screenshots/shot-interview.png) | ![Interview answering](docs/screenshots/shot-interview-listening.png) |
+
+**Interview** — speak your answers; Hands-free or Manual, an optional retry, and a
+per-answer timer:
+
+![Interview](docs/screenshots/shot-interview.png)
 
 ---
 
