@@ -29,6 +29,26 @@ describe('readUrlParams', () => {
     window.history.replaceState(null, '', '/?q=7')
     expect(readUrlParams().q).toBe(7)
   })
+
+  it('drops invalid enum params', () => {
+    window.history.replaceState(null, '', '/?format=bad&mode=bad&pool=bad')
+    const p = readUrlParams()
+    expect(p.format).toBeNull()
+    expect(p.mode).toBeNull()
+    expect(p.pool).toBeNull()
+  })
+
+  it('drops non-positive and non-integer numeric params', () => {
+    window.history.replaceState(null, '', '/?count=0&q=1.5')
+    let p = readUrlParams()
+    expect(p.count).toBeNull()
+    expect(p.q).toBeNull()
+
+    window.history.replaceState(null, '', '/?count=ten&q=-3')
+    p = readUrlParams()
+    expect(p.count).toBeNull()
+    expect(p.q).toBeNull()
+  })
 })
 
 describe('setUrlParams', () => {

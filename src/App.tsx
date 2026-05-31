@@ -40,8 +40,19 @@ export default function App() {
             ? questions.filter((q) => bookmarks.has(q.id))
             : questions;
 
-      let list =
-        cfg.mode === "test" ? sample(pool, cfg.count ?? TEST_LENGTH) : shuffle(pool);
+      if (pool.length === 0) {
+        clearUrlParams();
+        setPhase("start");
+        return;
+      }
+
+      const count =
+        cfg.mode === "test"
+          ? Math.min(cfg.count ?? TEST_LENGTH, pool.length)
+          : undefined;
+      const effectiveCfg: QuizConfig = { ...cfg, count };
+
+      let list = cfg.mode === "test" ? sample(pool, count ?? TEST_LENGTH) : shuffle(pool);
 
       if (startId !== undefined) {
         const pos = list.findIndex((q) => q.id === startId);
@@ -51,7 +62,7 @@ export default function App() {
         }
       }
 
-      setConfig(cfg);
+      setConfig(effectiveCfg);
       setSession(list);
       setIndex(0);
       setResults(Array(list.length).fill(null));
@@ -61,7 +72,7 @@ export default function App() {
         format: cfg.format,
         mode: cfg.mode,
         pool: cfg.pool,
-        count: cfg.mode === "test" ? String(cfg.count ?? TEST_LENGTH) : null,
+        count: cfg.mode === "test" ? String(count ?? TEST_LENGTH) : null,
         q: list[0]?.id?.toString() ?? null,
         stage: null,
       });
