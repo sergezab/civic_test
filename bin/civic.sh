@@ -1,0 +1,337 @@
+#!/usr/bin/env bash
+# Civic Test — Service Manager (backend + frontend)
+#
+# Usage:
+#   bash bin/civic.sh start            # start backend (uvicorn) + frontend (vite) in background
+#   bash bin/civic.sh stop             # stop both services
+#   bash bin/civic.sh restart          # stop then start
+#   bash bin/civic.sh status           # show running status + health + recent log lines
+#   bash bin/civic.sh logs             # tail both logs live (colour-coded)
+#   bash bin/civic.sh logs backend     # backend log only
+#   bash bin/civic.sh logs frontend    # frontend log only
+#   bash bin/civic.sh repair           # reinstall frontend deps + verify backend venv
+#   bash bin/civic.sh help
+#
+# Options (apply to start/restart):
+#   --port PORT        backend port (default: 8088)
+#   --ui-port PORT     frontend port (default: 5173)
+#   --no-reload        disable uvicorn auto-reload
+#
+# Related:
+#   server/app.py      <- FastAPI app entry point (uvicorn app:app)
+#   server/.venv       <- backend virtualenv (python + uvicorn)
+#   src/api/interview.ts <- frontend talks to the backend at VITE_INTERVIEW_API_URL
+
+set -uo pipefail
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+
+# Backend python: prefer the project venv, override with CIVIC_PY.
+PY="${CIVIC_PY:-${REPO_ROOT}/server/.venv/bin/python}"
+
+LOG_DIR="$REPO_ROOT/logs"
+BACKEND_LOG="$LOG_DIR/backend.log"
+FRONTEND_LOG="$LOG_DIR/frontend.log"
+BACKEND_PID_FILE="$LOG_DIR/backend.pid"
+FRONTEND_PID_FILE="$LOG_DIR/frontend.pid"
+
+SERVER_DIR="$REPO_ROOT/server"
+
+# ── Defaults ─────────────────────────────────────────────────────────────────
+PORT=8088
+UI_PORT=5173
+UI_HOST="127.0.0.1"
+RELOAD="--reload"
+
+# ── Colours ──────────────────────────────────────────────────────────────────
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
+
+info() { echo -e "${CYAN}▸${NC} $*"; }
+ok()   { echo -e "${GREEN}✓${NC} $*"; }
+fail() { echo -e "${RED}✗${NC} $*"; }
+warn() { echo -e "${YELLOW}⚠${NC} $*"; }
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+is_running() {
+    local pid_file="$1"
+    [ -f "$pid_file" ] || return 1
+    local pid; pid=$(cat "$pid_file" 2>/dev/null || true)
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    # A dead reloader parent can linger as a zombie that still passes kill -0.
+    local stat=""
+    if command -v ps >/dev/null 2>&1; then
+        stat=$(ps -o stat= -p "$pid" 2>/dev/null | awk 'NR==1 {print $1}')
+    fi
+    case "$stat" in Z*|*Z*) return 1 ;; esac
+    return 0
+}
+
+kill_service() {
+    local name="$1" pid_file="$2"
+    if is_running "$pid_file"; then
+        local pid; pid=$(cat "$pid_file")
+        info "Stopping $name (PID $pid)…"
+        pkill -P "$pid" 2>/dev/null || true   # children first (uvicorn reloader / vite)
+        kill "$pid" 2>/dev/null || true
+        local i=0
+        while kill -0 "$pid" 2>/dev/null && [ $i -lt 10 ]; do sleep 0.5; ((i++)); done
+        kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+        rm -f "$pid_file"
+        ok "$name stopped"
+    else
+        warn "$name is not running"
+        rm -f "$pid_file"
+    fi
+}
+
+# Free a port of any orphans (uvicorn --reload / vite spawn children that can
+# outlive the tracked PID).
+free_port() {
+    local port="$1" label="$2"
+    local pids; pids=$(lsof -ti :"$port" 2>/dev/null || true)
+    [ -z "$pids" ] && return 0
+    info "Cleaning up orphan ${label} process(es) on port ${port}…"
+    echo "$pids" | xargs kill 2>/dev/null || true
+    sleep 1
+    pids=$(lsof -ti :"$port" 2>/dev/null || true)
+    [ -n "$pids" ] && echo "$pids" | xargs kill -9 2>/dev/null || true
+}
+
+parse_options() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --port)      PORT="$2"; shift 2 ;;
+            --port=*)    PORT="${1#--port=}"; shift ;;
+            --ui-port)   UI_PORT="$2"; shift 2 ;;
+            --ui-port=*) UI_PORT="${1#--ui-port=}"; shift ;;
+            --no-reload) RELOAD=""; shift ;;
+            *)           shift ;;
+        esac
+    done
+}
+
+mkdir -p "$LOG_DIR"
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+cmd_start() {
+    parse_options "$@"
+
+    echo ""
+    echo -e "${BOLD}╔═══════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}║   Civic Test — Starting Services      ║${NC}"
+    echo -e "${BOLD}╚═══════════════════════════════════════╝${NC}"
+    echo ""
+
+    # ── Backend (uvicorn) ────────────────────────────────────────────────────
+    if is_running "$BACKEND_PID_FILE"; then
+        warn "Backend already running (PID $(cat "$BACKEND_PID_FILE"))"
+    elif [[ ! -x "$PY" ]]; then
+        fail "Backend python not found at: $PY"
+        echo "  Create the venv: python3 -m venv server/.venv && server/.venv/bin/pip install -r server/requirements.txt" >&2
+        echo "  Or set CIVIC_PY to a python with fastapi+uvicorn installed." >&2
+    elif ! "$PY" -c "import fastapi, uvicorn" 2>/dev/null; then
+        fail "fastapi/uvicorn not installed in $PY"
+        echo "  Run: $PY -m pip install -r server/requirements.txt   (or: bash bin/civic.sh repair)" >&2
+    else
+        info "Starting backend (uvicorn on :${PORT})…"
+        {
+            echo ""
+            echo "════════════════════════════════════════"
+            echo "  SESSION STARTED: $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "  Port: $PORT  Reload: ${RELOAD:-disabled}"
+            echo "════════════════════════════════════════"
+        } >> "$BACKEND_LOG"
+        (
+            cd "$SERVER_DIR" || exit 1
+            # shellcheck disable=SC2086
+            nohup "$PY" -m uvicorn app:app $RELOAD \
+                --host 0.0.0.0 --port "$PORT" --log-level info \
+                >> "$BACKEND_LOG" 2>&1 &
+            echo $! > "$BACKEND_PID_FILE"
+        )
+        ok "Backend started  →  PID $(cat "$BACKEND_PID_FILE")  log: logs/backend.log"
+    fi
+
+    # ── Frontend (Vite) ──────────────────────────────────────────────────────
+    if is_running "$FRONTEND_PID_FILE"; then
+        warn "Frontend already running (PID $(cat "$FRONTEND_PID_FILE"))"
+    else
+        if [[ ! -d "${REPO_ROOT}/node_modules" ]]; then
+            info "Installing frontend dependencies (pnpm install)…"
+            (cd "$REPO_ROOT" && pnpm install)
+        fi
+        info "Starting frontend (Vite on :${UI_PORT})…"
+        {
+            echo ""
+            echo "════════════════════════════════════════"
+            echo "  SESSION STARTED: $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "════════════════════════════════════════"
+        } >> "$FRONTEND_LOG"
+        (
+            cd "$REPO_ROOT" || exit 1
+            nohup pnpm exec vite --host "$UI_HOST" --port "$UI_PORT" --strictPort \
+                >> "$FRONTEND_LOG" 2>&1 &
+            echo $! > "$FRONTEND_PID_FILE"
+        )
+        ok "Frontend started →  PID $(cat "$FRONTEND_PID_FILE")  log: logs/frontend.log"
+    fi
+
+    # ── Health probe ─────────────────────────────────────────────────────────
+    echo ""
+    info "Waiting for services to be ready…"
+    sleep 3
+    local be_ok=false fe_ok=false
+    curl -sf --max-time 3 "http://localhost:${PORT}/health" &>/dev/null && be_ok=true
+    curl -sf --max-time 3 "http://localhost:${UI_PORT}"     &>/dev/null && fe_ok=true
+    echo ""
+    $be_ok && ok "Backend  →  http://localhost:${PORT}  (docs: http://localhost:${PORT}/docs)" \
+           || warn "Backend not responding yet — check: bash bin/civic.sh logs backend"
+    $fe_ok && ok "Frontend →  http://localhost:${UI_PORT}" \
+           || warn "Frontend not responding yet — check: bash bin/civic.sh logs frontend"
+    echo ""
+}
+
+cmd_stop() {
+    echo ""
+    info "Stopping Civic Test services…"
+    kill_service "Backend"  "$BACKEND_PID_FILE"
+    free_port "$PORT" "backend"
+    kill_service "Frontend" "$FRONTEND_PID_FILE"
+    free_port "$UI_PORT" "frontend"
+    echo ""
+}
+
+cmd_restart() { cmd_stop; sleep 1; cmd_start "$@"; }
+
+cmd_status() {
+    parse_options "$@"
+    echo ""
+    echo -e "${BOLD}── Civic Test — Service Status ──${NC}"
+    echo ""
+
+    if is_running "$BACKEND_PID_FILE"; then
+        ok "Backend   running  (PID $(cat "$BACKEND_PID_FILE"))"
+        local health
+        health=$(curl -sf --max-time 2 "http://localhost:${PORT}/health" 2>/dev/null || echo "")
+        [ -n "$health" ] && echo -e "           ${DIM}health: $health${NC}" \
+                         || warn "          /health not responding on :${PORT}"
+    else
+        rm -f "$BACKEND_PID_FILE"; fail "Backend   stopped"
+    fi
+    echo ""
+    if is_running "$FRONTEND_PID_FILE"; then
+        ok "Frontend  running  (PID $(cat "$FRONTEND_PID_FILE"))"
+        curl -sf --max-time 2 "http://localhost:${UI_PORT}" &>/dev/null \
+            && echo -e "           ${DIM}http://localhost:${UI_PORT} responding${NC}" \
+            || warn "          Frontend not responding (http://localhost:${UI_PORT})"
+    else
+        rm -f "$FRONTEND_PID_FILE"; fail "Frontend  stopped"
+    fi
+
+    echo ""
+    echo -e "${BOLD}── Recent Logs ──${NC}"
+    [ -f "$BACKEND_LOG" ]  && { echo ""; echo -e "${CYAN}backend (last 6 lines):${NC}";  tail -6 "$BACKEND_LOG"  | sed 's/^/  /'; }
+    [ -f "$FRONTEND_LOG" ] && { echo ""; echo -e "${CYAN}frontend (last 6 lines):${NC}"; tail -6 "$FRONTEND_LOG" | sed 's/^/  /'; }
+    echo ""
+    echo -e "${DIM}Live logs: bash bin/civic.sh logs${NC}"
+    echo ""
+}
+
+cmd_repair() {
+    echo ""
+    echo -e "${BOLD}── Civic Test — Repair Environment ──${NC}"
+    echo ""
+    if is_running "$BACKEND_PID_FILE" || is_running "$FRONTEND_PID_FILE"; then
+        info "Stopping running services before repair…"
+        kill_service "Backend"  "$BACKEND_PID_FILE"
+        kill_service "Frontend" "$FRONTEND_PID_FILE"
+        echo ""
+    fi
+    local errors=0
+
+    info "Verifying backend venv ($PY)…"
+    if [[ ! -x "$PY" ]]; then
+        warn "venv missing — creating server/.venv…"
+        if python3 -m venv "$SERVER_DIR/.venv"; then PY="$SERVER_DIR/.venv/bin/python"; ok "venv created"
+        else fail "could not create venv"; ((errors++)); fi
+    fi
+    if [[ -x "$PY" ]]; then
+        info "Installing backend requirements…"
+        if "$PY" -m pip install -r "$SERVER_DIR/requirements.txt" 2>&1 | tail -4; then
+            ok "Backend deps installed/verified"
+        else fail "pip install failed"; ((errors++)); fi
+    fi
+    echo ""
+
+    info "Reinstalling frontend dependencies…"
+    rm -rf "$REPO_ROOT/node_modules"
+    if (cd "$REPO_ROOT" && pnpm install); then ok "Frontend deps installed"
+    else fail "pnpm install failed"; ((errors++)); fi
+
+    echo ""
+    [ "$errors" -eq 0 ] && ok "Repair complete — run: bash bin/civic.sh start" \
+                        || fail "Repair finished with $errors error(s)"
+    echo ""
+}
+
+cmd_logs() {
+    local target="${1:-both}"
+    echo ""
+    case "$target" in
+        backend)
+            echo -e "${CYAN}${BOLD}── Backend log (Ctrl+C to exit) ──${NC}"; echo ""
+            tail -f "$BACKEND_LOG" ;;
+        frontend)
+            echo -e "${CYAN}${BOLD}── Frontend log (Ctrl+C to exit) ──${NC}"; echo ""
+            tail -f "$FRONTEND_LOG" ;;
+        both|*)
+            echo -e "${CYAN}${BOLD}── Backend + Frontend logs (Ctrl+C to exit) ──${NC}"
+            echo -e "${DIM}  backend lines prefixed [BE] | frontend [FE]${NC}"; echo ""
+            (tail -f "$BACKEND_LOG"  | sed "s/^/${GREEN}[BE]${NC} /") & TAIL_BE=$!
+            (tail -f "$FRONTEND_LOG" | sed "s/^/${CYAN}[FE]${NC} /") & TAIL_FE=$!
+            trap "kill $TAIL_BE $TAIL_FE 2>/dev/null; echo ''; exit 0" INT TERM
+            wait ;;
+    esac
+}
+
+cmd_help() {
+    echo ""
+    echo -e "${BOLD}Civic Test Service Manager${NC}"
+    echo ""
+    echo "  Usage: bash bin/civic.sh <command> [options]"
+    echo ""
+    echo "  Commands:"
+    echo "    start             Start backend (uvicorn) + frontend (vite) in background"
+    echo "    stop              Stop both services"
+    echo "    restart           Stop then start"
+    echo "    status            Show running status + health + recent logs"
+    echo "    logs [be|fe]      Tail logs live (colour-coded)"
+    echo "    repair            Reinstall frontend deps + verify backend venv"
+    echo "    help              Show this message"
+    echo ""
+    echo "  Options (for start/restart/status):"
+    echo "    --port PORT       Backend port (default: 8088)"
+    echo "    --ui-port PORT    Frontend port (default: 5173)"
+    echo "    --no-reload       Disable uvicorn auto-reload"
+    echo ""
+    echo "  Logs: logs/backend.log  logs/frontend.log"
+    echo "  PIDs: logs/backend.pid  logs/frontend.pid"
+    echo ""
+}
+
+# ── Dispatch ─────────────────────────────────────────────────────────────────
+CMD="${1:-help}"; shift 2>/dev/null || true
+case "$CMD" in
+    start)   cmd_start "$@" ;;
+    stop)    cmd_stop ;;
+    restart) cmd_restart "$@" ;;
+    status)  cmd_status "$@" ;;
+    logs)    cmd_logs "$@" ;;
+    repair)  cmd_repair ;;
+    help|--help|-h) cmd_help ;;
+    *) fail "Unknown command: $CMD"; cmd_help; exit 2 ;;
+esac
