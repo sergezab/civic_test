@@ -140,33 +140,36 @@ export function FlashScreen({
         )}
       </div>
 
+      <span className="flash-card-counter">Card {index + 1} of {cards.length}</span>
       <div className="footer-bar">
-        {!flipped ? (
-          <div className="flash-footer-actions">
+        <div className="flash-btn-row">
+          <button
+            className="btn btn-ghost flash-side-btn"
+            onClick={goPrev}
+            disabled={index === 0}
+          >
+            ← Prev
+          </button>
+
+          {!flipped ? (
             <button
-              className="btn btn-primary"
+              className="btn btn-primary flash-main-btn"
               onClick={() => setFlipped(true)}
             >
               Show the answer
             </button>
-            <button className="btn btn-ghost" onClick={goNext}>
+          ) : (
+            <button className="btn btn-primary flash-main-btn" onClick={goNext}>
+              {isLast ? "Finish" : "Next card"}
+            </button>
+          )}
+
+          {!flipped && (
+            <button className="btn btn-ghost flash-side-btn" onClick={goNext}>
               {isLast ? "Skip & finish" : "Skip →"}
             </button>
-          </div>
-        ) : (
-          <button className="btn btn-primary btn-wide" onClick={goNext}>
-            {isLast ? "Finish" : "Next card"}
-          </button>
-        )}
-      </div>
-
-      <div className="flash-nav">
-        <button className="flash-nav-btn" onClick={goPrev} disabled={index === 0}>
-          ← Previous
-        </button>
-        <span className="progress-label">
-          Card {index + 1} of {cards.length}
-        </span>
+          )}
+        </div>
       </div>
       <div className="flash-bar">
         <div

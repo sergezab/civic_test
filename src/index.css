@@ -542,48 +542,32 @@ button.choice:hover {
   box-shadow: var(--shadow-sm);
 }
 
-.flash-footer-actions {
-  display: flex;
-  gap: 12px;
-  width: 100%;
-  max-width: 640px;
-  justify-content: center;
-}
-.flash-footer-actions .btn {
-  flex: 1;
-  max-width: 300px;
+.flash-card-counter {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-soft);
+  margin-bottom: 10px;
 }
 
-.flash-nav {
-  width: 100%;
-  max-width: 700px;
-  margin-top: 12px;
+.flash-btn-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
+  width: 100%;
+  max-width: 700px;
 }
-.flash-nav .progress-label {
-  margin: 0;
+
+.flash-main-btn {
+  flex: 1;
 }
-.flash-nav-btn {
-  border: 1px solid var(--border);
-  background: #fff;
-  color: var(--navy-700);
-  border-radius: 999px;
-  padding: 8px 16px;
+
+.flash-side-btn {
+  flex: 0 0 auto;
+  padding: 12px 18px;
   font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition: transform 0.12s ease, opacity 0.12s ease;
-}
-.flash-nav-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-}
-.flash-nav-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 .flash-bar {
