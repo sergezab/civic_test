@@ -7,6 +7,7 @@ import { useRecorder } from "../hooks/useRecorder";
 import { useFeedbackAudio } from "../hooks/useFeedbackAudio";
 import {
   ANSWER_TIME_OPTIONS,
+  REVIEW_DELAY_OPTIONS,
   useInterviewPreferences,
   type InterviewMode,
 } from "../hooks/useInterviewPreferences";
@@ -80,9 +81,11 @@ export function InterviewScreen({
   const {
     answerSecs,
     interviewMode,
+    reviewDelaySecs,
     retry,
     setAnswerSecs,
     setInterviewMode,
+    setReviewDelaySecs,
     setRetry,
   } = useInterviewPreferences();
   const canRecord = !rec.supported && recorder.supported;
@@ -106,10 +109,13 @@ export function InterviewScreen({
   const [done, setDone] = useState(false);
   const [autoStarted, setAutoStarted] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [reviewRemaining, setReviewRemaining] = useState<number | null>(null);
 
   // Refs so delayed callbacks (audio onended, silence timers) read fresh values.
   const lastReadRef = useRef<number | null>(null);
   const resultPanelRef = useRef<HTMLDivElement | null>(null);
+  const reviewTimerRef = useRef<number | null>(null);
+  const reviewDelayRef = useRef(reviewDelaySecs);
   const autoRef = useRef(auto);
   const pausedRef = useRef(paused);
   const retryRef = useRef(retry);
@@ -117,6 +123,7 @@ export function InterviewScreen({
   const logRef = useRef(log);
   const indexRef = useRef(index);
   const deckRef = useRef(deck);
+  useEffect(() => void (reviewDelayRef.current = reviewDelaySecs), [reviewDelaySecs]);
   useEffect(() => void (autoRef.current = auto), [auto]);
   useEffect(() => void (pausedRef.current = paused), [paused]);
   useEffect(() => void (retryRef.current = retry), [retry]);
@@ -129,7 +136,34 @@ export function InterviewScreen({
 
   const q = deck[index];
 
+  const clearReviewCountdown = useCallback(() => {
+    if (reviewTimerRef.current !== null) {
+      window.clearInterval(reviewTimerRef.current);
+      reviewTimerRef.current = null;
+    }
+    setReviewRemaining(null);
+  }, []);
+
+  const startReviewCountdown = useCallback(
+    (onDone: () => void) => {
+      clearReviewCountdown();
+      const delay = reviewDelayRef.current;
+      const deadline = Date.now() + delay * 1000;
+      setReviewRemaining(delay);
+      reviewTimerRef.current = window.setInterval(() => {
+        const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+        setReviewRemaining(left);
+        if (left <= 0) {
+          clearReviewCountdown();
+          onDone();
+        }
+      }, 250);
+    },
+    [clearReviewCountdown],
+  );
+
   const resetTo = (qs: Question[]) => {
+    clearReviewCountdown();
     setDeck(qs);
     setIndex(0);
     setLog([]);
@@ -188,6 +222,7 @@ export function InterviewScreen({
   const commitOutcome = useCallback(
     (res: GradeResult, outcome: Outcome) => {
       stopFeedbackAudio();
+      clearReviewCountdown();
       speech.stop();
       if (rec.listening) rec.stop();
       if (autoRef.current) {
@@ -234,11 +269,12 @@ export function InterviewScreen({
       setStage("ready");
       setIndex(indexRef.current + 1);
     },
-    [mode, rec, speech, stopFeedbackAudio],
+    [clearReviewCountdown, mode, rec, speech, stopFeedbackAudio],
   );
 
   const startRetry = useCallback(() => {
     stopFeedbackAudio();
+    clearReviewCountdown();
     setResult(null);
     setNetError(null);
     pausedRef.current = false;
@@ -249,7 +285,7 @@ export function InterviewScreen({
     ilog("iv", "retry", { q: deckRef.current[indexRef.current]?.id });
     if (autoRef.current) beginListening();
     else setStage("ready");
-  }, [beginListening, rec, stopFeedbackAudio]);
+  }, [beginListening, clearReviewCountdown, rec, stopFeedbackAudio]);
 
   const submitText = useCallback(
     async (raw: string) => {
@@ -280,12 +316,10 @@ export function InterviewScreen({
           ilog("iv", "feedback done", { q: cq.id, ms: since(tf) });
           if (!autoRef.current || pausedRef.current) return; // manual: buttons drive it
           const { canRetry, outcome } = decide(res);
-          if (canRetry || res.verdict !== "correct") {
-            pausedRef.current = true;
-            setPaused(true);
-          } else {
-            commitOutcome(res, outcome);
-          }
+          startReviewCountdown(() => {
+            if (canRetry) startRetry();
+            else commitOutcome(res, outcome);
+          });
         });
       } catch {
         ilog("iv", "grade error", { q: cq.id, ms: since(t0) });
@@ -294,7 +328,7 @@ export function InterviewScreen({
         if (autoRef.current) setPaused(true);
       }
     },
-    [commitOutcome, decide, playFeedback, rec, speech],
+    [commitOutcome, decide, playFeedback, rec, speech, startRetry, startReviewCountdown],
   );
 
   // Hands-free silence detection: submit after a pause (or give up on silence).
@@ -388,6 +422,7 @@ export function InterviewScreen({
   // Free redo (re-answer without scoring it as a new attempt).
   const redo = () => {
     stopFeedbackAudio();
+    clearReviewCountdown();
     setResult(null);
     setNetError(null);
     rec.reset();
@@ -399,6 +434,7 @@ export function InterviewScreen({
 
   const goPrevious = () => {
     if (indexRef.current <= 0) return;
+    clearReviewCountdown();
     stopFeedbackAudio();
     speech.stop();
     if (rec.listening) rec.stop();
@@ -427,12 +463,16 @@ export function InterviewScreen({
   };
 
   const startHandsFree = () => {
+    clearReviewCountdown();
     setNetError(null);
+    pausedRef.current = false;
     setPaused(false);
     lastReadRef.current = null; // force re-read + listen for current question
     setAutoStarted(true);
   };
   const pauseAuto = () => {
+    clearReviewCountdown();
+    pausedRef.current = true;
     setPaused(true);
     if (rec.listening) rec.stop();
     stopFeedbackAudio();
@@ -440,12 +480,15 @@ export function InterviewScreen({
     setStage("ready");
   };
   const resumeAuto = () => {
+    clearReviewCountdown();
+    pausedRef.current = false;
     setPaused(false);
     lastReadRef.current = null;
   };
 
   const switchMode = (next: InterviewMode) => {
     if (next === interviewMode) return;
+    clearReviewCountdown();
     if (rec.listening) rec.stop();
     stopFeedbackAudio();
     speech.stop();
@@ -454,12 +497,21 @@ export function InterviewScreen({
     setResult(null);
     if (next === "auto" && autoAvailable) {
       lastReadRef.current = null;
+      pausedRef.current = false;
       setPaused(false);
       setAutoStarted(true);
     } else {
       setAutoStarted(false);
     }
   };
+
+  const pauseReviewCountdown = () => {
+    clearReviewCountdown();
+    pausedRef.current = true;
+    setPaused(true);
+  };
+
+  useEffect(() => clearReviewCountdown, [clearReviewCountdown]);
 
   // ── Server down ───────────────────────────────────────────────
   if (server === "down") {
@@ -621,6 +673,19 @@ export function InterviewScreen({
             ))}
           </select>
         </label>
+        <label className="answer-time" title="Time to read feedback before hands-free continues">
+          Review
+          <select
+            value={reviewDelaySecs}
+            onChange={(e) => setReviewDelaySecs(Number(e.target.value))}
+          >
+            {REVIEW_DELAY_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s}s
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {insecureVoice && (
@@ -738,19 +803,29 @@ export function InterviewScreen({
             </div>
             <p className="officer-feedback">{result.feedback}</p>
             <p className="heard-line">You said: “{result.heard || "—"}”</p>
-            {!resultCorrect && (
-              <p className="answer-line">Accepted answer: {result.correctAnswer}</p>
-            )}
+            <div className="accepted-answer-panel">
+              <p className="accepted-answer-title">Accepted answer{q.acceptableAnswers.length === 1 ? "" : "s"}:</p>
+              <ul>
+                {q.acceptableAnswers.map((accepted) => (
+                  <li key={accepted}>{accepted}</li>
+                ))}
+              </ul>
+            </div>
             {resultCorrect && attempt > 1 && (
               <p className="answer-line">Got it on the retry — flagged for review.</p>
             )}
-            {auto && !paused && (
+            {auto && reviewRemaining !== null && (
               <p className="auto-next-hint">
                 {retryAvailable
-                  ? "Review the feedback, then try again when you're ready."
+                  ? `Trying again in ${reviewRemaining}s…`
                   : resultCorrect
-                    ? "Next question coming up…"
-                    : "Review the feedback, then continue when you're ready."}
+                    ? `Next question in ${reviewRemaining}s…`
+                    : `Continuing in ${reviewRemaining}s…`}
+              </p>
+            )}
+            {auto && paused && (
+              <p className="auto-next-hint">
+                Countdown paused. Use the controls below when you're ready.
               </p>
             )}
           </div>
@@ -819,7 +894,7 @@ export function InterviewScreen({
                 </button>
               </>
             )}
-            {(!retryAvailable && (!auto || paused || !resultCorrect)) && (
+            {(!retryAvailable && (!auto || paused || !resultCorrect || reviewRemaining !== null)) && (
               <>
                 <button
                   className={`btn btn-wide ${resultCorrect ? "btn-correct" : "btn-primary"}`}
@@ -832,9 +907,9 @@ export function InterviewScreen({
                 </button>
               </>
             )}
-            {auto && !paused && resultCorrect && (
-              <button className="btn btn-ghost" onClick={pauseAuto}>
-                ⏸ Pause
+            {auto && reviewRemaining !== null && (
+              <button className="btn btn-ghost" onClick={pauseReviewCountdown}>
+                ⏸ Pause countdown
               </button>
             )}
           </>

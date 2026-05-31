@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export type InterviewMode = "manual" | "auto";
 
 export const ANSWER_TIME_OPTIONS = [30, 45, 60, 90, 120] as const;
+export const REVIEW_DELAY_OPTIONS = [5, 10, 15, 30, 60] as const;
 
 function readInterviewMode(): InterviewMode {
   try {
@@ -34,10 +35,23 @@ function readAnswerSecs(): number {
   return 30;
 }
 
+function readReviewDelaySecs(): number {
+  try {
+    const value = Number(localStorage.getItem("iv-review-secs"));
+    if (REVIEW_DELAY_OPTIONS.includes(value as (typeof REVIEW_DELAY_OPTIONS)[number])) {
+      return value;
+    }
+  } catch {
+    /* ignore */
+  }
+  return 5;
+}
+
 export function useInterviewPreferences() {
   const [interviewMode, setInterviewMode] = useState<InterviewMode>(readInterviewMode);
   const [retry, setRetry] = useState<boolean>(readRetry);
   const [answerSecs, setAnswerSecs] = useState<number>(readAnswerSecs);
+  const [reviewDelaySecs, setReviewDelaySecs] = useState<number>(readReviewDelaySecs);
 
   useEffect(() => {
     try {
@@ -63,12 +77,22 @@ export function useInterviewPreferences() {
     }
   }, [answerSecs]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem("iv-review-secs", String(reviewDelaySecs));
+    } catch {
+      /* ignore */
+    }
+  }, [reviewDelaySecs]);
+
   return {
     answerSecs,
     interviewMode,
+    reviewDelaySecs,
     retry,
     setAnswerSecs,
     setInterviewMode,
+    setReviewDelaySecs,
     setRetry,
   };
 }

@@ -7,6 +7,7 @@ async function clearAppStorage(page: Page) {
     localStorage.removeItem('iv-answer-secs')
     localStorage.removeItem('iv-mode')
     localStorage.removeItem('iv-retry')
+    localStorage.removeItem('iv-review-secs')
   })
 }
 
@@ -140,6 +141,7 @@ test.describe('Interview mode', () => {
     await page.getByRole('button', { name: 'Interview' }).click()
     await page.getByRole('button', { name: 'Start 10-question interview' }).click()
     await page.getByRole('checkbox', { name: /Retry wrong answers/ }).check()
+    await page.getByLabel('Review').selectOption('10')
 
     await page.getByRole('button', { name: 'Type instead' }).click()
     await page.getByLabel('Type your answer:').fill('Abraham Lincoln')
@@ -147,6 +149,7 @@ test.describe('Interview mode', () => {
 
     await expect(page.getByText('Name one more accepted answer, then try again.')).toBeVisible()
     await expect(page.getByText('Now: partial on this question')).toBeVisible()
+    await expect(page.getByText(/Accepted answer/)).toBeVisible()
     await expect(page.getByText('Answered 0 of 10')).toBeVisible()
     await page.getByRole('button', { name: 'Try again' }).click()
     await page.getByRole('button', { name: 'Type instead' }).click()
