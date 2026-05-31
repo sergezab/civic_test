@@ -94,8 +94,14 @@ public/audio/
 | Dimension | Values |
 |-----------|--------|
 | `format`  | `quiz` (A–D choices + scoring) \| `flash` (flip cards, no scoring) |
-| `mode`    | `test` (10 random questions) \| `practice` (all in pool) |
+| `mode`    | `test` (random `count` questions) \| `practice` (all in pool) |
 | `pool`    | `all` (100) \| `senior` (20 starred ★ for 65/20 applicants) \| `bookmarks` |
+| `count`   | test length: `10 \| 25 \| 50 \| 100`, plus the pool's full size; options larger than the pool are hidden. Default 10. Ignored in `practice` mode. |
+
+The start screen shows a length selector for `test` mode; the largest option always
+equals the current pool's size (e.g. `[10, 20]` for the 20-question senior pool).
+`App.tsx` samples `cfg.count ?? TEST_LENGTH` questions. The pass threshold scales as
+`ceil(total * 0.6)` (6 for the standard 10-question test).
 
 ### Bookmark system
 - `useBookmarks` hook — `Set<number>` of question IDs in `localStorage` key `civic_bookmarks`
@@ -105,11 +111,12 @@ public/audio/
 ### URL state
 Every session writes its state to URL params for deep-linking and bug reporting:
 ```
-/?format=quiz&mode=test&pool=all&q=42&stage=ask
+/?format=quiz&mode=test&pool=all&count=10&q=42&stage=ask
 ```
 - `q` = question ID (updated as user advances)
+- `count` = test length (only written in `test` mode)
 - `stage` = `ask | choosing | answered` (quiz) or `front | back` (flash)
-- On page load: if `format + mode + pool` are present, auto-starts that session at `q`
+- On page load: if `format + mode + pool` are present, auto-starts that session at `q` (honouring `count`)
 
 ### Audio
 - Pre-generated `.m4a` files in `public/audio/q-{id}.m4a` (one per question)

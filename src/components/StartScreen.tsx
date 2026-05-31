@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 export type Pool = "all" | "senior" | "bookmarks";
 export type Mode = "test" | "practice";
@@ -28,7 +28,9 @@ const BASE_COUNTS = [10, 25, 50, 100];
 export function StartScreen({ onStart, speechSupported, bookmarkCount }: StartScreenProps) {
   const [pool, setPool] = useState<Pool>("all");
   const [format, setFormat] = useState<Format>("quiz");
-  const [count, setCount] = useState(10);
+  // The user's preferred length. It's reconciled against the current pool's
+  // available options below, so switching pools never loses the preference.
+  const [preferredCount, setPreferredCount] = useState(10);
 
   const isFlash = format === "flash";
   const isInterview = format === "interview";
@@ -44,12 +46,13 @@ export function StartScreen({ onStart, speechSupported, bookmarkCount }: StartSc
     return Array.from(new Set(opts)).sort((a, b) => a - b);
   }, [poolSize]);
 
-  // Keep the selected length valid when the pool (and so its size) changes.
-  useEffect(() => {
-    if (countOptions.length && !countOptions.includes(count)) {
-      setCount(countOptions.includes(10) ? 10 : countOptions[countOptions.length - 1]);
-    }
-  }, [countOptions, count]);
+  // Effective length: the preference if it fits this pool, else 10 (or the
+  // largest available). Derived during render — no effect, no stale state.
+  const count = countOptions.includes(preferredCount)
+    ? preferredCount
+    : countOptions.includes(10)
+      ? 10
+      : (countOptions[countOptions.length - 1] ?? 10);
 
   const start = (mode: Mode) => onStart({ pool, mode, format, count });
 
@@ -128,7 +131,7 @@ export function StartScreen({ onStart, speechSupported, bookmarkCount }: StartSc
               <button
                 key={n}
                 className={count === n ? "is-active" : ""}
-                onClick={() => setCount(n)}
+                onClick={() => setPreferredCount(n)}
               >
                 {n}
               </button>
