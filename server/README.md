@@ -39,6 +39,13 @@ For thinking models (qwen3.x) the grade call sends `think:false` so the model
 answers immediately. `/grade` also returns the same JSON when the transcript is
 empty ("I didn't catch an answer").
 
+The grader treats transcripts as untrusted data. Obvious prompt-injection,
+prompt-extraction, command-execution, file-deletion, tool/API-abuse, or secret
+exfiltration requests are blocked before the transcript is sent to the LLM. The
+response remains inside the normal `/grade` contract: `verdict: "incorrect"`,
+`model: null`, `fallback: true`, with feedback telling the applicant the officer
+can only evaluate civics-test answers.
+
 ## Configuration (`.env`)
 
 | Var | Default | Purpose |
