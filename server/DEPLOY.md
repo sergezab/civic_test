@@ -65,6 +65,7 @@ export ALLOWED_ORIGINS="https://your-site.pages.dev"
 - Per-IP rate limiting (`RATE_LIMIT_PER_MIN`, default 30/min).
 - Request caps: transcript length, accepted-answer count, max audio bytes.
 - CORS restricted to `ALLOWED_ORIGINS`.
+- `x-request-id` is echoed on every response and logged with request timing.
 - Graceful degradation: if the API is down, Interview mode shows a notice and
   Quiz/Flash modes keep working; if TTS/STT fail, the UI falls back to text.
 - The grader is injection-resistant (treats the transcript as data) and never

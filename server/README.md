@@ -50,6 +50,7 @@ empty ("I didn't catch an answer").
 | `RATE_LIMIT_PER_MIN` / `MAX_TRANSCRIPT_CHARS` | `30` / `600` | abuse guards |
 | `TRUST_PROXY_HEADERS` | `0` | use `X-Forwarded-For` for client rate-limit keys behind a trusted proxy |
 | `GRADE_CONCURRENCY` / `TTS_CONCURRENCY` / `STT_CONCURRENCY` | `1` / `1` / `1` | local model/subprocess concurrency caps |
+| `LOG_LEVEL` | `INFO` | backend logger verbosity |
 | `TTS_ENGINE` / `PIPER_VOICE` | `piper` / `voices/en_US-lessac-medium.onnx` | feedback voice |
 | `WHISPER_MODEL` / `WHISPER_DEVICE` / `WHISPER_COMPUTE` | `base.en` / `cpu` / `int8` | STT model |
 
@@ -59,8 +60,10 @@ empty ("I didn't catch an answer").
 
 ## Logging
 
-All timing logs print to stdout as `[civic]` lines (see `logutil.py`):
-`grade llm=…ms`, `/grade total=…ms`, `/tts …ms`, `/stt …ms`, and a
+All timing logs print to stdout as `[civic]` lines (see `logutil.py`) with a
+configurable `LOG_LEVEL`. Each response includes an `x-request-id`; pass your own
+header to correlate browser/proxy/server traces, or let the API generate one.
+Logs include `grade llm=…ms`, `/grade total=…ms`, `/tts …ms`, `/stt …ms`, and a
 `grade FALLBACK after …ms (reason)` line when the LLM path fails. Pair with the
 frontend's `[api]`/`[iv]` console logs to localise latency.
 

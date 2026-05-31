@@ -8,7 +8,8 @@
 - **`checkHealth(signal)`** → `boolean` (drives the "server down" screen).
 - **`gradeAnswer(question, acceptedAnswers, transcript, questionId?)`** →
   `GradeResult { verdict: "correct"|"partial"|"incorrect", feedback, correctAnswer,
-  heard, model, fallback }`.
+  heard, model, fallback }`; backend JSON is validated at runtime before the type
+  is returned.
 - **`transcribeAudio(blob)`** → `string` (POST audio to `/stt`).
 - **`synthesizeSpeech(text)`** → object-URL `string | null` (POST `/tts`; **12 s
   abort timeout** so a stalled TTS can't hang the hands-free loop; returns null →

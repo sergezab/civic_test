@@ -83,8 +83,10 @@ civic_test/
 │   │   ├── useSpeech.ts           # plays pre-generated question audio (+ Web Speech fallback)
 │   │   ├── useSpeechRecognition.ts# Web Speech API (speech-to-text in browser)
 │   │   ├── useRecorder.ts         # MediaRecorder → server STT fallback
+│   │   ├── useFeedbackAudio.ts     # officer feedback audio lifecycle + cleanup
+│   │   ├── useInterviewPreferences.ts # persisted Interview settings
 │   │   └── useBookmarks.ts        # saved questions (localStorage)
-│   ├── api/interview.ts          # client for /grade, /tts, /stt
+│   ├── api/interview.ts          # typed client + response validation for /grade, /tts, /stt
 │   └── utils/ quiz.ts · url.ts · log.ts   # log.ts = timing/diagnostic logs
 ├── public/audio/                 # q-1.m4a … q-100.m4a (Piper voice)
 ├── scripts/generate-audio.mjs    # regenerates the question audio (Piper)
@@ -204,6 +206,7 @@ reverse proxy); set `VITE_INTERVIEW_API_URL` to call the backend directly instea
 | `RATE_LIMIT_PER_MIN` | `30` | per-IP request cap |
 | `TRUST_PROXY_HEADERS` | `0` | trust `X-Forwarded-For` for rate limits behind your own proxy |
 | `GRADE_CONCURRENCY` / `TTS_CONCURRENCY` / `STT_CONCURRENCY` | `1` / `1` / `1` | local model/subprocess concurrency caps |
+| `LOG_LEVEL` | `INFO` | backend logger verbosity |
 | `TTS_ENGINE` / `PIPER_VOICE` | `piper` / bundled | feedback voice |
 | `WHISPER_MODEL` / `_DEVICE` / `_COMPUTE` | `base.en` / `cpu` / `int8` | STT model |
 
@@ -255,10 +258,31 @@ Timing logs show where a slow grade goes:
 - **Browser console** (on in dev; in prod set `localStorage.ivDebug = "1"`): `[iv]`
   stage events and `[api]` round-trip timings, e.g. `[api] /grade done ms=2026`.
 - **Server console** (`[civic]` lines): `grade llm=…ms` (pure model time),
-  `/grade total=…ms` (endpoint), and `/tts` / `/stt` timings.
+  `/grade total=…ms` (endpoint), `/tts` / `/stt` timings, and one request timing
+  line with an `x-request-id` echoed on every response.
 
 Compare them to localise lag: browser-RTT ≈ server-total → it's the model, not the
 network; a large `llm=` (e.g. `~26000ms`) is a cold model load (see keep-alive tip).
+
+## Verification and tooling
+
+The frontend is compiled with strict TypeScript (`strict`,
+`exactOptionalPropertyTypes`, and `noUncheckedIndexedAccess`). CI uses npm and
+runs the same gates expected locally:
+
+```bash
+npm run build
+npm run lint
+npm test -- --run
+npm run test:e2e
+
+cd server
+uv run ruff check .
+uv run pytest
+```
+
+Prettier is available via `npm run format`; it is intentionally not enforced as a
+blocking gate until a dedicated repo-wide formatting pass is made.
 
 ## Privacy
 Spoken answers are transcribed and graded only to produce feedback; **audio is not
