@@ -28,7 +28,7 @@ export default defineConfig({
 
   webServer: {
     // In CI: serve the pre-built dist/. Locally: run the dev server.
-    command: IS_CI ? `pnpm preview --port ${new URL(BASE_URL).port || 4173}` : 'pnpm dev',
+    command: IS_CI ? `npm run preview -- --port ${new URL(BASE_URL).port || 4173}` : 'npm run dev',
     url: BASE_URL,
     reuseExistingServer: !IS_CI,
     timeout: 20_000,

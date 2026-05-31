@@ -11,26 +11,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  unit:
-    name: Vitest unit tests
+  frontend:
+    name: Frontend gates
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
+          cache: npm
 
-      - run: pnpm install --frozen-lockfile
+      - run: npm ci
 
-      - run: pnpm test --run
+      - run: npm run build
+      - run: npm run lint
+      - run: npm test -- --run
+
+  backend:
+    name: Backend gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install backend dependencies
+        working-directory: server
+        run: |
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install -r requirements-dev.txt
+
+      - run: uv run ruff check .
+        working-directory: server
+
+      - run: uv run pytest
+        working-directory: server
 
   e2e:
     name: Playwright E2E
@@ -40,22 +65,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
+          cache: npm
 
-      - run: pnpm install --frozen-lockfile
+      - run: npm ci
 
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium
 
-      - run: pnpm build
+      - run: npm run build
 
       - name: Run E2E against preview server
-        run: pnpm exec playwright test
+        run: npx playwright test
         env:
           E2E_BASE_URL: http://localhost:4173

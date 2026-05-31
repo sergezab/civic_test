@@ -68,7 +68,7 @@ run_backend() {
 run_frontend() {
     hdr "Frontend (vitest)"
     local t0; t0=$(date +%s)
-    if pnpm exec vitest run; then
+    if npx vitest run; then
         ok "frontend passed ($(elapsed "$t0"))"
         return 0
     else
