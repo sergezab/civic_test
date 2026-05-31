@@ -21,6 +21,48 @@ export interface GradeResult {
   fallback: boolean;
 }
 
+const VERDICTS = new Set<Verdict>(["correct", "partial", "incorrect"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export function parseGradeResult(data: unknown): GradeResult {
+  if (!isRecord(data)) {
+    throw new Error("grade response was not an object");
+  }
+
+  const { verdict, feedback, correctAnswer, heard, model, fallback } = data;
+  if (typeof verdict !== "string" || !VERDICTS.has(verdict as Verdict)) {
+    throw new Error("grade response had an invalid verdict");
+  }
+  if (
+    typeof feedback !== "string" ||
+    typeof correctAnswer !== "string" ||
+    typeof heard !== "string" ||
+    (model !== null && typeof model !== "string") ||
+    typeof fallback !== "boolean"
+  ) {
+    throw new Error("grade response shape did not match the API contract");
+  }
+
+  return {
+    verdict: verdict as Verdict,
+    feedback,
+    correctAnswer,
+    heard,
+    model,
+    fallback,
+  };
+}
+
+function parseSttResponse(data: unknown): string {
+  if (!isRecord(data) || (data.text !== undefined && typeof data.text !== "string")) {
+    throw new Error("stt response shape did not match the API contract");
+  }
+  return data.text ?? "";
+}
+
 export async function checkHealth(signal?: AbortSignal): Promise<boolean> {
   try {
     const r = await fetch(`${INTERVIEW_API_BASE}/health`, { signal });
@@ -47,7 +89,7 @@ export async function gradeAnswer(
     ilog("api", "/grade FAILED", { q: questionId, status: r.status, ms: since(t0) });
     throw new Error(`grade request failed (${r.status})`);
   }
-  const data = (await r.json()) as GradeResult;
+  const data = parseGradeResult(await r.json());
   ilog("api", "/grade done", {
     q: questionId,
     ms: since(t0),
@@ -71,9 +113,9 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
   ilog("api", "POST /stt", { bytes: blob.size, type: blob.type });
   const r = await fetch(`${INTERVIEW_API_BASE}/stt`, { method: "POST", body: form });
   if (!r.ok) throw new Error(`stt request failed (${r.status})`);
-  const data = (await r.json()) as { text?: string };
-  ilog("api", "/stt done", { ms: since(t0), chars: (data.text ?? "").length });
-  return data.text ?? "";
+  const text = parseSttResponse(await r.json());
+  ilog("api", "/stt done", { ms: since(t0), chars: text.length });
+  return text;
 }
 
 // /tts (Piper) for spoken feedback. Returns a playable object URL, or null if
