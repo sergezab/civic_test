@@ -208,14 +208,17 @@ export function InterviewScreen({
     async (text: string, onDone?: () => void) => {
       speech.stop();
       let fired = false;
+      let url: string | null = null;
+      // finish() runs once via any path (end/error/stall) and always frees the
+      // object URL so the blob can't leak even on the safety-timeout path.
       const finish = () => {
         if (fired) return;
         fired = true;
+        if (url) URL.revokeObjectURL(url);
         onDone?.();
       };
       const safety = window.setTimeout(finish, 20000); // never hang the auto loop
 
-      let url: string | null = null;
       try {
         url = await synthesizeSpeech(text);
       } catch {
@@ -231,7 +234,6 @@ export function InterviewScreen({
       fbAudioRef.current = audio;
       const done = () => {
         window.clearTimeout(safety);
-        URL.revokeObjectURL(url!);
         finish();
       };
       audio.onended = done;
@@ -385,6 +387,18 @@ export function InterviewScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auto, stage, rec.transcript]);
 
+  // Hands-free hard cap: honor the configured time limit even if the speaker
+  // never pauses (silence detection above usually fires first). Fixed deadline,
+  // so it does NOT reset on transcript changes.
+  useEffect(() => {
+    if (!auto || stage !== "listening") return;
+    const t = window.setTimeout(() => {
+      submitText(transcriptRef.current);
+    }, answerSecs * 1000);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, stage, answerSecs]);
+
   useEffect(() => () => stopFeedbackAudio(), [stopFeedbackAudio]);
 
   // ── Manual controls ───────────────────────────────────────────
@@ -506,7 +520,10 @@ export function InterviewScreen({
   if (done) {
     const firstTry = log.filter((e) => e.outcome === "correct").length;
     const reviewed = log.filter((e) => e.outcome === "review").length;
-    const passed = firstTry >= PASS_MARK;
+    // Test length is the full deck (early stop may end it sooner); practice = asked.
+    const total = mode === "test" ? deck.length : log.length;
+    const passMark = passMarkFor(total);
+    const passed = firstTry >= passMark;
     const toPractice = deck.filter((dq) =>
       log.some((e) => e.id === dq.id && e.outcome !== "correct"),
     );
@@ -515,7 +532,7 @@ export function InterviewScreen({
         <p className="eyebrow">Interview complete</p>
         <div className={`result-medallion ${passed ? "is-pass" : "is-fail"}`}>
           <span className="result-score">{firstTry}</span>
-          <span className="result-of">/ {log.length}</span>
+          <span className="result-of">/ {total}</span>
         </div>
         <h1 className="result-title">
           {mode === "test"
@@ -526,8 +543,8 @@ export function InterviewScreen({
         </h1>
         <p className="result-detail">
           {mode === "test"
-            ? `You need ${PASS_MARK} of 10 correct to pass. You got ${firstTry} on the first try`
-            : `You got ${firstTry} of ${log.length} on the first try`}
+            ? `You need ${passMark} of ${total} correct to pass. You got ${firstTry} on the first try`
+            : `You got ${firstTry} of ${total} on the first try`}
           {reviewed > 0 ? ` (+${reviewed} on a retry).` : "."}
         </p>
 

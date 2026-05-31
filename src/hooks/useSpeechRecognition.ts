@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ilog } from "../utils/log";
 
 // Minimal typing for the Web Speech API (not in lib.dom for all TS versions).
 interface SpeechRecognitionLike {
@@ -71,28 +72,38 @@ export function useSpeechRecognition(lang = "en-US"): UseSpeechRecognition {
     rec.interimResults = true;
     rec.onresult = (e) => {
       let interim = "";
+      let gotFinal = false;
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
         const txt = res[0].transcript;
-        if (res.isFinal) finalRef.current += txt + " ";
-        else interim += txt;
+        if (res.isFinal) {
+          finalRef.current += txt + " ";
+          gotFinal = true;
+        } else interim += txt;
       }
+      if (gotFinal) ilog("stt", "final", { chars: finalRef.current.trim().length });
       setTranscript((finalRef.current + interim).trim());
     };
     rec.onerror = (e) => {
-      if (e.error && e.error !== "aborted" && e.error !== "no-speech") {
-        setError(e.error);
-      }
+      // Common codes: network (Chrome STT needs Google's servers), not-allowed /
+      // service-not-allowed (mic permission), audio-capture (no mic), no-speech, aborted.
+      const code = e.error || "unknown";
+      ilog("stt", "error", { error: code });
+      if (code !== "aborted" && code !== "no-speech") setError(code);
       setListening(false);
     };
-    rec.onend = () => setListening(false);
+    rec.onend = () => {
+      ilog("stt", "end", { chars: finalRef.current.trim().length });
+      setListening(false);
+    };
 
     recRef.current = rec;
     try {
       rec.start();
+      ilog("stt", "start", { lang });
       setListening(true);
-    } catch {
-      /* already started */
+    } catch (e) {
+      ilog("stt", "start failed", { error: String(e) });
     }
   }, [lang]);
 

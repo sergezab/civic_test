@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface UseRecorder {
   supported: boolean;
@@ -68,6 +68,21 @@ export function useRecorder(): UseRecorder {
           resolve(null);
         }
       }),
+    [],
+  );
+
+  // Release the mic if the component unmounts mid-recording (otherwise the
+  // MediaStream and the browser's mic indicator stay active).
+  useEffect(
+    () => () => {
+      try {
+        mrRef.current?.stop();
+      } catch {
+        /* not recording */
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    },
     [],
   );
 
