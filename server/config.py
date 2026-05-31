@@ -38,6 +38,10 @@ ALLOWED_ORIGINS = _origins(
 
 # Abuse guard
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
+TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "0") == "1"
+GRADE_CONCURRENCY = int(os.getenv("GRADE_CONCURRENCY", "1"))
+TTS_CONCURRENCY = int(os.getenv("TTS_CONCURRENCY", "1"))
+STT_CONCURRENCY = int(os.getenv("STT_CONCURRENCY", "1"))
 
 # TTS — Piper (preferred) with macOS `say` fallback
 TTS_ENGINE = os.getenv("TTS_ENGINE", "piper")  # piper | say | auto

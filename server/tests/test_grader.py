@@ -66,7 +66,7 @@ def test_grade_parses_llm_json(monkeypatch):
     monkeypatch.setattr(
         grader,
         "_ollama_chat",
-        lambda messages: '{"verdict":"partial","feedback":"close","correctAnswer":"the answer"}',
+        lambda messages, session=None: '{"verdict":"partial","feedback":"close","correctAnswer":"the answer"}',
     )
     r = grader.grade("Q", ["the answer"], "an answer")
     assert r["verdict"] == "partial"
@@ -80,7 +80,7 @@ def test_grade_rejects_bad_verdict_then_falls_back(monkeypatch):
     monkeypatch.setattr(
         grader,
         "_ollama_chat",
-        lambda messages: '{"verdict":"maybe","feedback":"?","correctAnswer":"z"}',
+        lambda messages, session=None: '{"verdict":"maybe","feedback":"?","correctAnswer":"z"}',
     )
     r = grader.grade("Q", ["the Constitution"], "the constitution")
     # bad verdict → exception → deterministic fallback (substring match wins)
@@ -91,7 +91,7 @@ def test_grade_rejects_bad_verdict_then_falls_back(monkeypatch):
 def test_grade_falls_back_when_llm_raises(monkeypatch):
     monkeypatch.setattr(config, "GRADER_PROVIDER", "ollama")
 
-    def boom(messages):
+    def boom(messages, session=None):
         raise RuntimeError("ollama unreachable")
 
     monkeypatch.setattr(grader, "_ollama_chat", boom)

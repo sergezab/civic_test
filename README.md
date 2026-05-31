@@ -202,6 +202,8 @@ reverse proxy); set `VITE_INTERVIEW_API_URL` to call the backend directly instea
 | `GRADE_TIMEOUT` / `GRADE_MAX_TOKENS` | `45` / `300` | grading limits |
 | `ALLOWED_ORIGINS` | `localhost:5173` | CORS allow-list |
 | `RATE_LIMIT_PER_MIN` | `30` | per-IP request cap |
+| `TRUST_PROXY_HEADERS` | `0` | trust `X-Forwarded-For` for rate limits behind your own proxy |
+| `GRADE_CONCURRENCY` / `TTS_CONCURRENCY` / `STT_CONCURRENCY` | `1` / `1` / `1` | local model/subprocess concurrency caps |
 | `TTS_ENGINE` / `PIPER_VOICE` | `piper` / bundled | feedback voice |
 | `WHISPER_MODEL` / `_DEVICE` / `_COMPUTE` | `base.en` / `cpu` / `int8` | STT model |
 

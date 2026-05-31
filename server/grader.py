@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
+from typing import Literal, TypedDict
 
 import requests
 
@@ -37,6 +39,17 @@ Rules:
 JSON shape (use exactly these keys):
 {"verdict":"correct|partial|incorrect","feedback":"one warm, spoken-style sentence","correctAnswer":"the single best answer to say"}"""
 
+Verdict = Literal["correct", "partial", "incorrect"]
+
+
+class GradeResult(TypedDict):
+    verdict: Verdict
+    feedback: str
+    correctAnswer: str
+    heard: str
+    model: str | None
+    fallback: bool
+
 
 def _build_user(question: str, accepted: list[str], transcript: str) -> str:
     return (
@@ -55,9 +68,10 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[start : end + 1])
 
 
-def _ollama_chat(messages: list[dict]) -> str:
+def _ollama_chat(messages: list[dict[str, str]], session: requests.Session | None = None) -> str:
     """Call Ollama /api/chat. Disables reasoning via think=False; retries
     without it for models that don't accept the flag."""
+    client = session or requests
     payload = {
         "model": config.GRADER_MODEL,
         "think": False,
@@ -68,12 +82,12 @@ def _ollama_chat(messages: list[dict]) -> str:
         },
         "messages": messages,
     }
-    r = requests.post(
+    r = client.post(
         f"{config.OLLAMA_HOST}/api/chat", json=payload, timeout=config.GRADE_TIMEOUT
     )
     if r.status_code == 400:  # model doesn't support `think`
         payload.pop("think")
-        r = requests.post(
+        r = client.post(
             f"{config.OLLAMA_HOST}/api/chat", json=payload, timeout=config.GRADE_TIMEOUT
         )
     r.raise_for_status()
@@ -111,7 +125,7 @@ def _ok(ans: str) -> dict:
     }
 
 
-def _fallback(question: str, accepted: list[str], transcript: str) -> dict:
+def _fallback(question: str, accepted: list[str], transcript: str) -> GradeResult:
     """Deterministic grader used when the LLM is down or returns junk."""
     text = transcript.lower()
     toks = _tokens(transcript)
@@ -121,69 +135,100 @@ def _fallback(question: str, accepted: list[str], transcript: str) -> dict:
         if not core:
             continue
         if core in text or (len(core) > 4 and text in core):
-            return _ok(ans)
+            result = _ok(ans)
+            result["heard"] = transcript
+            result["model"] = None
+            return result  # type: ignore[return-value]
         atoks = _tokens(core)
         if atoks and len(atoks & toks) >= max(1, len(atoks) - 1):
-            return _ok(ans)
+            result = _ok(ans)
+            result["heard"] = transcript
+            result["model"] = None
+            return result
     return {
         "verdict": "incorrect",
         "feedback": f"Not quite — a correct answer is {best}.",
         "correctAnswer": best,
+        "heard": transcript,
+        "model": None,
         "fallback": True,
     }
 
 
-def grade(question: str, accepted: list[str], transcript: str) -> dict:
-    transcript = (transcript or "").strip()
-    if not transcript:
-        best = accepted[0] if accepted else ""
-        return {
-            "verdict": "incorrect",
-            "feedback": "I didn't catch an answer — take a breath and try again.",
-            "correctAnswer": best,
-            "heard": "",
-            "model": None,
-            "fallback": True,
-        }
+class Grader:
+    """LLM-backed civics grader with a deterministic never-raise fallback."""
 
-    t0 = time.perf_counter()
-    try:
-        if config.GRADER_PROVIDER == "ollama":
-            raw = _ollama_chat(
-                [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": _build_user(question, accepted, transcript)},
-                ]
-            )
-        else:
-            raw = _llm_core_chat(question, accepted, transcript)
-        llm_ms = (time.perf_counter() - t0) * 1000
-
-        data = _extract_json(raw)
-        verdict = str(data.get("verdict", "")).lower().strip()
-        if verdict not in ("correct", "partial", "incorrect"):
-            raise ValueError(f"unexpected verdict {verdict!r}")
-        feedback = str(data.get("feedback", "")).strip() or "Thanks for your answer."
-        correct = str(data.get("correctAnswer", "")).strip() or (accepted[0] if accepted else "")
-        log.info(
-            "grade llm=%.0fms verdict=%s model=%s provider=%s",
-            llm_ms,
-            verdict,
-            config.GRADER_MODEL,
-            config.GRADER_PROVIDER,
+    def __init__(self, max_concurrency: int | None = None) -> None:
+        self._session = requests.Session()
+        self._semaphore = threading.BoundedSemaphore(
+            max(1, max_concurrency or config.GRADE_CONCURRENCY)
         )
-        return {
-            "verdict": verdict,
-            "feedback": feedback,
-            "correctAnswer": correct,
-            "heard": transcript,
-            "model": config.GRADER_MODEL,
-            "fallback": False,
-        }
-    except Exception as exc:
-        llm_ms = (time.perf_counter() - t0) * 1000
-        log.warning("grade FALLBACK after %.0fms (%s: %s)", llm_ms, type(exc).__name__, exc)
-        result = _fallback(question, accepted, transcript)
-        result["heard"] = transcript
-        result["model"] = None
-        return result
+
+    def grade(self, question: str, accepted: list[str], transcript: str) -> GradeResult:
+        transcript = (transcript or "").strip()
+        if not transcript:
+            best = accepted[0] if accepted else ""
+            return {
+                "verdict": "incorrect",
+                "feedback": "I didn't catch an answer — take a breath and try again.",
+                "correctAnswer": best,
+                "heard": "",
+                "model": None,
+                "fallback": True,
+            }
+
+        t0 = time.perf_counter()
+        try:
+            with self._semaphore:
+                if config.GRADER_PROVIDER == "ollama":
+                    raw = _ollama_chat(
+                        [
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {
+                                "role": "user",
+                                "content": _build_user(question, accepted, transcript),
+                            },
+                        ],
+                        session=self._session,
+                    )
+                else:
+                    raw = _llm_core_chat(question, accepted, transcript)
+            llm_ms = (time.perf_counter() - t0) * 1000
+
+            data = _extract_json(raw)
+            verdict = str(data.get("verdict", "")).lower().strip()
+            if verdict not in ("correct", "partial", "incorrect"):
+                raise ValueError(f"unexpected verdict {verdict!r}")
+            feedback = str(data.get("feedback", "")).strip() or "Thanks for your answer."
+            correct = str(data.get("correctAnswer", "")).strip() or (
+                accepted[0] if accepted else ""
+            )
+            log.info(
+                "grade llm=%.0fms verdict=%s model=%s provider=%s",
+                llm_ms,
+                verdict,
+                config.GRADER_MODEL,
+                config.GRADER_PROVIDER,
+            )
+            return {
+                "verdict": verdict,  # type: ignore[typeddict-item]
+                "feedback": feedback,
+                "correctAnswer": correct,
+                "heard": transcript,
+                "model": config.GRADER_MODEL,
+                "fallback": False,
+            }
+        except Exception as exc:
+            llm_ms = (time.perf_counter() - t0) * 1000
+            log.warning(
+                "grade FALLBACK after %.0fms (%s: %s)", llm_ms, type(exc).__name__, exc
+            )
+            return _fallback(question, accepted, transcript)
+
+
+_DEFAULT_GRADER = Grader()
+
+
+def grade(question: str, accepted: list[str], transcript: str) -> GradeResult:
+    """Compatibility wrapper around the process-wide grader service."""
+    return _DEFAULT_GRADER.grade(question, accepted, transcript)

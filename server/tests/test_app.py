@@ -4,10 +4,7 @@ no LLM, Whisper, or Piper calls."""
 
 import app as appmod
 import config
-import grader
 import pytest
-import stt
-import tts
 from fastapi.testclient import TestClient
 
 
@@ -39,7 +36,7 @@ def test_health_ok(client):
 
 # ── /grade ────────────────────────────────────────────────────────────────────
 def test_grade_returns_verdict(client, monkeypatch):
-    monkeypatch.setattr(grader, "grade", _grade_stub("partial"))
+    monkeypatch.setattr(appmod.grader_service, "grade", _grade_stub("partial"))
     r = client.post(
         "/grade",
         json={"question": "Q", "acceptedAnswers": ["x"], "transcript": "x said", "questionId": 7},
@@ -55,14 +52,14 @@ def test_grade_supplies_placeholder_when_no_accepted(client, monkeypatch):
         captured["accepted"] = accepted
         return _grade_stub()(question, accepted, transcript)
 
-    monkeypatch.setattr(grader, "grade", spy)
+    monkeypatch.setattr(appmod.grader_service, "grade", spy)
     client.post("/grade", json={"question": "Q", "acceptedAnswers": [], "transcript": "hi"})
     assert captured["accepted"] == ["(no accepted answer supplied)"]
 
 
 def test_grade_rate_limited_after_threshold(client, monkeypatch):
     monkeypatch.setattr(config, "RATE_LIMIT_PER_MIN", 2)
-    monkeypatch.setattr(grader, "grade", _grade_stub())
+    monkeypatch.setattr(appmod.grader_service, "grade", _grade_stub())
     payload = {"question": "Q", "acceptedAnswers": ["x"], "transcript": "x"}
     assert client.post("/grade", json=payload).status_code == 200
     assert client.post("/grade", json=payload).status_code == 200
@@ -71,9 +68,21 @@ def test_grade_rate_limited_after_threshold(client, monkeypatch):
     assert blocked.json()["error"] == "rate_limited"
 
 
+def test_grade_rejects_oversized_transcript(client):
+    r = client.post(
+        "/grade",
+        json={
+            "question": "Q",
+            "acceptedAnswers": ["x"],
+            "transcript": "x" * (config.MAX_TRANSCRIPT_CHARS + 1),
+        },
+    )
+    assert r.status_code == 422
+
+
 # ── /tts ──────────────────────────────────────────────────────────────────────
 def test_tts_returns_wav(client, monkeypatch):
-    monkeypatch.setattr(tts, "synthesize", lambda text: b"RIFFxxxx")
+    monkeypatch.setattr(appmod.tts_engine, "synthesize", lambda text: b"RIFFxxxx")
     r = client.post("/tts", json={"text": "you passed"})
     assert r.status_code == 200
     assert r.headers["content-type"] == "audio/wav"
@@ -81,7 +90,7 @@ def test_tts_returns_wav(client, monkeypatch):
 
 
 def test_tts_unavailable_returns_503(client, monkeypatch):
-    monkeypatch.setattr(tts, "synthesize", lambda text: None)
+    monkeypatch.setattr(appmod.tts_engine, "synthesize", lambda text: None)
     r = client.post("/tts", json={"text": "you passed"})
     assert r.status_code == 503
     assert r.json()["error"] == "tts_unavailable"
@@ -101,8 +110,14 @@ def test_stt_rejects_oversized_audio(client, monkeypatch):
     assert r.json()["error"] == "audio_too_large"
 
 
+def test_stt_rejects_non_audio_upload(client):
+    r = client.post("/stt", files={"file": ("a.txt", b"xxxx", "text/plain")})
+    assert r.status_code == 415
+    assert r.json()["error"] == "unsupported_audio_type"
+
+
 def test_stt_transcribes(client, monkeypatch):
-    monkeypatch.setattr(stt, "transcribe", lambda data, suffix=".webm": "hello world")
+    monkeypatch.setattr(appmod.stt_engine, "transcribe", lambda data, suffix=".webm": "hello world")
     r = client.post("/stt", files={"file": ("a.webm", b"xxxx", "audio/webm")})
     assert r.status_code == 200
     assert r.json()["text"] == "hello world"
@@ -112,7 +127,7 @@ def test_stt_returns_500_on_transcribe_error(client, monkeypatch):
     def boom(data, suffix=".webm"):
         raise RuntimeError("whisper exploded")
 
-    monkeypatch.setattr(stt, "transcribe", boom)
+    monkeypatch.setattr(appmod.stt_engine, "transcribe", boom)
     r = client.post("/stt", files={"file": ("a.webm", b"xxxx", "audio/webm")})
     assert r.status_code == 500
     assert r.json()["error"] == "stt_failed"

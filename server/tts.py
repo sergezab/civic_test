@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 import config
@@ -78,24 +79,41 @@ def _say_wav(text: str) -> bytes | None:
     return _read_and_unlink(wav)
 
 
-def synthesize(text: str) -> bytes | None:
-    text = (text or "").strip()[:600]
-    if not text:
-        return None
-    t0 = time.perf_counter()
-    wav: bytes | None = None
-    engine = "say"
-    if config.TTS_ENGINE in ("piper", "auto"):
-        wav = _piper_wav(text)
-        engine = "piper"
-    if not wav:
-        wav = _say_wav(text)  # explicit say, or piper fallback
+class TtsEngine:
+    """Text-to-speech service with bounded subprocess concurrency."""
+
+    def __init__(self, max_concurrency: int | None = None) -> None:
+        self._semaphore = threading.BoundedSemaphore(
+            max(1, max_concurrency or config.TTS_CONCURRENCY)
+        )
+
+    def synthesize(self, text: str) -> bytes | None:
+        text = (text or "").strip()[:600]
+        if not text:
+            return None
+        t0 = time.perf_counter()
+        wav: bytes | None = None
         engine = "say"
-    log.info(
-        "tts engine=%s chars=%d %.0fms ok=%s",
-        engine,
-        len(text),
-        (time.perf_counter() - t0) * 1000,
-        bool(wav),
-    )
-    return wav
+        with self._semaphore:
+            if config.TTS_ENGINE in ("piper", "auto"):
+                wav = _piper_wav(text)
+                engine = "piper"
+            if not wav:
+                wav = _say_wav(text)  # explicit say, or piper fallback
+                engine = "say"
+        log.info(
+            "tts engine=%s chars=%d %.0fms ok=%s",
+            engine,
+            len(text),
+            (time.perf_counter() - t0) * 1000,
+            bool(wav),
+        )
+        return wav
+
+
+_DEFAULT_ENGINE = TtsEngine()
+
+
+def synthesize(text: str) -> bytes | None:
+    """Compatibility wrapper around the process-wide TTS engine."""
+    return _DEFAULT_ENGINE.synthesize(text)
