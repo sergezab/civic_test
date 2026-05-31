@@ -106,16 +106,19 @@ test.describe('Interview mode', () => {
 
   test('supports typed wrong-answer retry without TTS', async ({ page }) => {
     let gradeCalls = 0
+    const ttsTexts: string[] = []
     await page.route('**/health', (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
     )
-    await page.route('**/tts', (route) =>
-      route.fulfill({
+    await page.route('**/tts', (route) => {
+      const body = route.request().postDataJSON() as { text?: string }
+      ttsTexts.push(body.text ?? '')
+      return route.fulfill({
         status: 503,
         contentType: 'application/json',
         body: '{"error":"tts unavailable"}',
-      }),
-    )
+      })
+    })
     await page.route('**/grade', async (route: Route) => {
       gradeCalls += 1
       const requestBody = route.request().postDataJSON() as { transcript?: string }
@@ -149,9 +152,15 @@ test.describe('Interview mode', () => {
 
     await expect(page.getByText('Name one more accepted answer, then try again.')).toBeVisible()
     await expect(page.getByText('Now: partial on this question')).toBeVisible()
-    await expect(page.getByText(/Accepted answer/)).toBeVisible()
+    await expect(page.getByText('What I heard:')).toBeVisible()
+    await expect(page.getByText('“Abraham Lincoln”')).toBeVisible()
+    expect(ttsTexts[0]).toContain('I heard: Abraham Lincoln.')
+    await expect(page.getByText(/Official accepted answer/)).toBeVisible()
     await expect(page.getByText('Answered 0 of 10')).toBeVisible()
     await page.getByRole('button', { name: 'Try again' }).click()
+    await expect(
+      page.getByText('One more try — listen to the question again, then answer the officer.'),
+    ).toBeVisible()
     await page.getByRole('button', { name: 'Type instead' }).click()
     await page.getByLabel('Type your answer:').fill('George Washington')
     await page.getByRole('button', { name: 'Submit answer' }).click()
@@ -165,6 +174,79 @@ test.describe('Interview mode', () => {
     await expect(page.getByText('Question 1 of 10')).toBeVisible()
     await expect(page.getByText('Answered 0 of 10')).toBeVisible()
     expect(gradeCalls).toBe(2)
+  })
+
+  test('records an interview attempt log with officer feedback', async ({ page }) => {
+    let gradeCalls = 0
+    await page.route('**/health', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+    )
+    await page.route('**/tts', (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: '{"error":"tts unavailable"}',
+      }),
+    )
+    await page.route('**/grade', async (route: Route) => {
+      gradeCalls += 1
+      const requestBody = route.request().postDataJSON() as { transcript?: string }
+      const correct = gradeCalls > 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          verdict: correct ? 'correct' : 'partial',
+          feedback: correct ? 'That is exactly right.' : 'Please add one more answer.',
+          correctAnswer: 'the Constitution',
+          heard: requestBody.transcript ?? '',
+          model: 'test-model',
+          fallback: false,
+        }),
+      })
+    })
+
+    await page.goto('/')
+    await clearAppStorage(page)
+    await page.goto('/?format=interview&mode=test&pool=all&count=1')
+
+    await page.getByRole('checkbox', { name: /Retry wrong answers/ }).check()
+    await page.getByRole('button', { name: 'Type instead' }).click()
+    await page.getByLabel('Type your answer:').fill('Bill of Rights')
+    await page.getByRole('button', { name: 'Submit answer' }).click()
+    await expect(page.getByText('Please add one more answer.')).toBeVisible()
+    await page.getByRole('button', { name: 'Try again' }).click()
+    await page.getByRole('button', { name: 'Type instead' }).click()
+    await page.getByLabel('Type your answer:').fill('the Constitution')
+    await page.getByRole('button', { name: 'Submit answer' }).click()
+    await expect(page.getByText('That is exactly right.')).toBeVisible()
+    await page.getByRole('button', { name: 'Finish interview' }).click()
+    const completeUrl = new URL(page.url())
+    expect(completeUrl.searchParams.get('stage')).toBe('complete')
+    expect(completeUrl.searchParams.has('q')).toBe(false)
+
+    await expect(page.getByRole('button', { name: 'Practice 1 for review' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Interview log' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /All attempts 2/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await expect(page.getByRole('button', { name: /Wrong\/partial 1/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Corrected on retry 1/ })).toBeVisible()
+    await expect(page.getByText('Applicant answer: “the Constitution”')).toBeVisible()
+    await expect(page.getByText('Officer response: That is exactly right.')).toBeVisible()
+    await page.getByRole('button', { name: /Wrong\/partial 1/ }).click()
+    await expect(page.getByText('Officer response: Please add one more answer.')).toBeVisible()
+    await expect(page.getByText('Officer response: That is exactly right.')).not.toBeVisible()
+    await page.getByRole('button', { name: /Corrected on retry 1/ }).click()
+    await expect(page.getByText('Officer response: Please add one more answer.')).toBeVisible()
+    await expect(page.getByText('Officer response: That is exactly right.')).toBeVisible()
+    await expect(page.getByText(/Official accepted: /).first()).toBeVisible()
+
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Download interview log' }).click()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toMatch(/^civics-interview-log-.+\.json$/)
   })
 
   test('hands-free mode starts listening without a real microphone', async ({ page }) => {

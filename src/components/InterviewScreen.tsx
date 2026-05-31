@@ -19,6 +19,7 @@ import {
   type GradeResult,
   type Verdict,
 } from "../api/interview";
+import { setUrlParams } from "../utils/url";
 
 interface InterviewScreenProps {
   questions: Question[];
@@ -41,6 +42,7 @@ type Stage =
 type Server = "checking" | "ok" | "down";
 /** correct = right on first try; review = right only after a retry; missed = never right. */
 type Outcome = "correct" | "review" | "missed";
+type AttemptLogFilter = "all" | "wrong" | "corrected" | "practice";
 
 interface LogEntry {
   id: number;
@@ -53,6 +55,25 @@ interface LogEntry {
   attempts: number;
 }
 
+interface AttemptLogEntry {
+  id: number;
+  questionNumber: number;
+  deckSize: number;
+  question: string;
+  acceptableAnswers: string[];
+  userAnswer: string;
+  heard: string;
+  verdict: Verdict;
+  correctAnswer: string;
+  officerFeedback: string;
+  model: string | null;
+  fallback: boolean;
+  attempt: number;
+  answerMode: InterviewMode;
+  elapsedMs: number;
+  recordedAt: string;
+}
+
 /** USCIS pass bar is 6 of 10 (60%); scale it to whatever test length is chosen. */
 const passMarkFor = (total: number) => Math.max(1, Math.ceil(total * 0.6));
 const SILENCE_MS = 2200; // auto: stop after this much quiet once speech started
@@ -62,9 +83,29 @@ const OUTCOME_ICON: Record<Outcome, string> = {
   review: "↻",
   missed: "✕",
 };
+const VERDICT_ICON: Record<Verdict, string> = {
+  correct: "✓",
+  partial: "↻",
+  incorrect: "✕",
+};
+const ATTEMPT_LOG_FILTER_LABELS: Record<AttemptLogFilter, string> = {
+  all: "All attempts",
+  wrong: "Wrong/partial",
+  corrected: "Corrected on retry",
+  practice: "Practice set",
+};
 
 const fmtTime = (s: number) =>
   `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
+
+function heardSummary(heard: string): string {
+  const trimmed = heard.trim();
+  return trimmed ? `I heard: ${trimmed}.` : "I did not catch an answer.";
+}
+
+function spokenFeedbackText(result: GradeResult): string {
+  return `${heardSummary(result.heard)} ${result.feedback}`;
+}
 
 export function InterviewScreen({
   questions,
@@ -106,6 +147,8 @@ export function InterviewScreen({
   const [attempt, setAttempt] = useState(1);
   const [netError, setNetError] = useState<string | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
+  const [attemptLog, setAttemptLog] = useState<AttemptLogEntry[]>([]);
+  const [logFilter, setLogFilter] = useState<AttemptLogFilter>("all");
   const [done, setDone] = useState(false);
   const [autoStarted, setAutoStarted] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -121,6 +164,7 @@ export function InterviewScreen({
   const retryRef = useRef(retry);
   const attemptRef = useRef(attempt);
   const logRef = useRef(log);
+  const attemptLogRef = useRef(attemptLog);
   const indexRef = useRef(index);
   const deckRef = useRef(deck);
   useEffect(() => void (reviewDelayRef.current = reviewDelaySecs), [reviewDelaySecs]);
@@ -129,12 +173,21 @@ export function InterviewScreen({
   useEffect(() => void (retryRef.current = retry), [retry]);
   useEffect(() => void (attemptRef.current = attempt), [attempt]);
   useEffect(() => void (logRef.current = log), [log]);
+  useEffect(() => void (attemptLogRef.current = attemptLog), [attemptLog]);
   useEffect(() => void (indexRef.current = index), [index]);
   useEffect(() => void (deckRef.current = deck), [deck]);
   const transcriptRef = useRef("");
   useEffect(() => void (transcriptRef.current = rec.transcript), [rec.transcript]);
 
   const q = deck[index];
+
+  useEffect(() => {
+    if (done) {
+      setUrlParams({ q: null, stage: "complete" });
+      return;
+    }
+    if (q) setUrlParams({ q: String(q.id), stage: null });
+  }, [done, q]);
 
   const clearReviewCountdown = useCallback(() => {
     if (reviewTimerRef.current !== null) {
@@ -167,6 +220,8 @@ export function InterviewScreen({
     setDeck(qs);
     setIndex(0);
     setLog([]);
+    setAttemptLog([]);
+    setLogFilter("all");
     setDone(false);
     setResult(null);
     setAnswer("");
@@ -282,10 +337,16 @@ export function InterviewScreen({
     attemptRef.current = 2;
     setAttempt(2);
     rec.reset();
-    ilog("iv", "retry", { q: deckRef.current[indexRef.current]?.id });
-    if (autoRef.current) beginListening();
-    else setStage("ready");
-  }, [beginListening, clearReviewCountdown, rec, stopFeedbackAudio]);
+    const retryQuestion = deckRef.current[indexRef.current];
+    ilog("iv", "retry", { q: retryQuestion?.id });
+    setStage("ready");
+    if (!retryQuestion) return;
+    if (autoRef.current) {
+      speech.play(retryQuestion.id, retryQuestion.question, beginListening);
+      return;
+    }
+    speech.play(retryQuestion.id, retryQuestion.question);
+  }, [beginListening, clearReviewCountdown, rec, speech, stopFeedbackAudio]);
 
   const submitText = useCallback(
     async (raw: string) => {
@@ -308,11 +369,46 @@ export function InterviewScreen({
       });
       try {
         const res = await gradeAnswer(cq.question, cq.acceptableAnswers, text, cq.id);
-        ilog("iv", "graded", { q: cq.id, ms: since(t0), verdict: res.verdict });
+        const elapsedMs = since(t0);
+        const auditEntry: AttemptLogEntry = {
+          id: cq.id,
+          questionNumber: indexRef.current + 1,
+          deckSize: deckRef.current.length,
+          question: cq.question,
+          acceptableAnswers: cq.acceptableAnswers,
+          userAnswer: text,
+          heard: res.heard,
+          verdict: res.verdict,
+          correctAnswer: res.correctAnswer,
+          officerFeedback: res.feedback,
+          model: res.model,
+          fallback: res.fallback,
+          attempt: attemptRef.current,
+          answerMode: autoRef.current ? "auto" : "manual",
+          elapsedMs,
+          recordedAt: new Date().toISOString(),
+        };
+        setAttemptLog((prev) => {
+          const next = [...prev, auditEntry];
+          attemptLogRef.current = next;
+          return next;
+        });
+        ilog("iv", "grade audit", {
+          q: cq.id,
+          ms: elapsedMs,
+          attempt: auditEntry.attempt,
+          verdict: res.verdict,
+          userAnswer: text,
+          heard: res.heard,
+          officerFeedback: res.feedback,
+          correctAnswer: res.correctAnswer,
+          model: res.model,
+          fallback: res.fallback,
+        });
         setResult(res);
         setStage("result");
         const tf = now();
-        playFeedback(res.feedback, () => {
+        playFeedback(spokenFeedbackText(res), () => {
           ilog("iv", "feedback done", { q: cq.id, ms: since(tf) });
           if (!autoRef.current || pausedRef.current) return; // manual: buttons drive it
           const { canRetry, outcome } = decide(res);
@@ -511,6 +607,32 @@ export function InterviewScreen({
     setPaused(true);
   };
 
+  const downloadAttemptLog = () => {
+    const exportedAt = new Date().toISOString();
+    const payload = {
+      app: "civic-test-interview",
+      exportedAt,
+      session: {
+        mode,
+        deckSize: deckRef.current.length,
+        completedQuestions: logRef.current.length,
+      },
+      attempts: attemptLogRef.current,
+      finalOutcomes: logRef.current,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `civics-interview-log-${exportedAt.replace(/[:.]/g, "-")}.json`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   useEffect(() => clearReviewCountdown, [clearReviewCountdown]);
 
   // ── Server down ───────────────────────────────────────────────
@@ -541,6 +663,20 @@ export function InterviewScreen({
     const toPractice = deck.filter((dq) =>
       log.some((e) => e.id === dq.id && e.outcome !== "correct"),
     );
+    const correctedIds = new Set(log.filter((e) => e.outcome === "review").map((e) => e.id));
+    const practiceIds = new Set(toPractice.map((question) => question.id));
+    const filteredAttemptLog = attemptLog.filter((entry) => {
+      if (logFilter === "wrong") return entry.verdict !== "correct";
+      if (logFilter === "corrected") return correctedIds.has(entry.id);
+      if (logFilter === "practice") return practiceIds.has(entry.id);
+      return true;
+    });
+    const filterCounts: Record<AttemptLogFilter, number> = {
+      all: attemptLog.length,
+      wrong: attemptLog.filter((entry) => entry.verdict !== "correct").length,
+      corrected: correctedIds.size,
+      practice: practiceIds.size,
+    };
     return (
       <div className="screen results-screen">
         <p className="eyebrow">Interview complete</p>
@@ -562,28 +698,10 @@ export function InterviewScreen({
           {reviewed > 0 ? ` (+${reviewed} on a retry).` : "."}
         </p>
 
-        <div className="transcript-review">
-          {log.map((e, i) => (
-            <div key={i} className={`tr-row tr-${e.outcome}`}>
-              <span className="tr-icon">{OUTCOME_ICON[e.outcome]}</span>
-              <div className="tr-body">
-                <p className="tr-q">{e.question}</p>
-                <p className="tr-heard">You said: “{e.heard || "—"}”</p>
-                {e.outcome !== "correct" && (
-                  <p className="tr-answer">
-                    {e.outcome === "review" ? "Got it on retry · " : ""}
-                    Answer: {e.correctAnswer}
-                  </p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="start-actions">
+        <div className="start-actions result-actions">
           {toPractice.length > 0 && (
             <button className="btn btn-primary" onClick={() => resetTo(toPractice)}>
-              Practice {toPractice.length} you missed
+              Practice {toPractice.length} for review
             </button>
           )}
           <button
@@ -592,9 +710,56 @@ export function InterviewScreen({
           >
             New interview
           </button>
+          {attemptLog.length > 0 && (
+            <button className="btn btn-ghost" onClick={downloadAttemptLog}>
+              Download interview log
+            </button>
+          )}
           <button className="btn btn-ghost" onClick={onHome}>
             Back to start
           </button>
+        </div>
+
+        <h2 className="review-title">Interview log</h2>
+        <div className="log-filter" role="group" aria-label="Filter interview log">
+          {(["all", "wrong", "corrected", "practice"] as const).map((filter) => (
+            <button
+              key={filter}
+              className={logFilter === filter ? "is-active" : ""}
+              onClick={() => setLogFilter(filter)}
+              aria-pressed={logFilter === filter}
+            >
+              {ATTEMPT_LOG_FILTER_LABELS[filter]}{" "}
+              <span>{filterCounts[filter]}</span>
+            </button>
+          ))}
+        </div>
+        <div className="transcript-review" aria-label="Interview attempt log">
+          {filteredAttemptLog.map((e, i) => (
+            <div
+              key={`${e.id}-${e.questionNumber}-${e.attempt}-${i}`}
+              className={`tr-row tr-${e.verdict}`}
+            >
+              <span className="tr-icon">{VERDICT_ICON[e.verdict]}</span>
+              <div className="tr-body">
+                <p className="tr-q">
+                  Q{e.questionNumber}. {e.question}
+                </p>
+                <p className="tr-meta">
+                  Attempt {e.attempt} · {e.answerMode} · {e.verdict}
+                  {e.fallback ? " · deterministic fallback" : e.model ? ` · ${e.model}` : ""}
+                </p>
+                <p className="tr-heard">
+                  Applicant answer: “{e.heard || e.userAnswer || "—"}”
+                </p>
+                <p className="tr-officer">Officer response: {e.officerFeedback}</p>
+                <p className="tr-answer">Official accepted: {e.acceptableAnswers.join("; ")}</p>
+              </div>
+            </div>
+          ))}
+          {filteredAttemptLog.length === 0 && (
+            <p className="empty-log-filter">No attempts match this filter.</p>
+          )}
         </div>
       </div>
     );
@@ -744,7 +909,7 @@ export function InterviewScreen({
             ) : auto && paused ? (
               <p>Paused.</p>
             ) : attempt > 1 ? (
-              <p>One more try — answer the officer out loud.</p>
+              <p>One more try — listen to the question again, then answer the officer.</p>
             ) : (
               <p>When you’re ready, answer the officer out loud.</p>
             )}
@@ -752,8 +917,8 @@ export function InterviewScreen({
               <p className="time-hint">You’ll have {fmtTime(answerSecs)} to answer.</p>
             )}
             <p className="privacy-note">
-              🔒 Your answer is transcribed and graded to give feedback — audio
-              isn’t stored.
+              🔒 Your answer is transcribed and graded to give feedback. Audio isn’t stored; the
+              text log stays on this page until you leave or download it.
             </p>
             {netError && (
               <p className="net-error" role="alert">
@@ -802,9 +967,14 @@ export function InterviewScreen({
               <span className="verdict-label">{result.verdict}</span>
             </div>
             <p className="officer-feedback">{result.feedback}</p>
-            <p className="heard-line">You said: “{result.heard || "—"}”</p>
+            <div className="heard-line">
+              <span className="heard-label">What I heard:</span>
+              <span>“{result.heard || "—"}”</span>
+            </div>
             <div className="accepted-answer-panel">
-              <p className="accepted-answer-title">Accepted answer{q.acceptableAnswers.length === 1 ? "" : "s"}:</p>
+              <p className="accepted-answer-title">
+                Official accepted answer{q.acceptableAnswers.length === 1 ? "" : "s"}:
+              </p>
               <ul>
                 {q.acceptableAnswers.map((accepted) => (
                   <li key={accepted}>{accepted}</li>

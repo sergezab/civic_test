@@ -851,10 +851,24 @@ button.choice:hover {
   color: var(--ink);
 }
 .heard-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
   margin: 0;
-  font-size: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(16, 42, 84, 0.1);
+  font-size: 15px;
+  color: var(--ink);
+}
+.heard-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 800;
   color: var(--ink-soft);
-  font-style: italic;
 }
 .answer-line {
   margin: 6px 0 0;
@@ -1062,6 +1076,54 @@ button.choice:hover {
   gap: 8px;
   text-align: left;
 }
+.review-title {
+  margin: 10px 0 0;
+  font-size: 18px;
+  color: var(--ink);
+}
+.result-actions {
+  max-width: 760px;
+  margin: 4px auto 18px;
+}
+.log-filter {
+  width: 100%;
+  max-width: 760px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 4px auto 8px;
+}
+.log-filter button {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--navy-700);
+  border-radius: 999px;
+  padding: 9px 13px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.log-filter button.is-active {
+  background: var(--navy-600);
+  border-color: var(--navy-600);
+  color: #fff;
+}
+.log-filter span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(16, 42, 84, 0.1);
+}
+.log-filter button.is-active span {
+  background: rgba(255, 255, 255, 0.22);
+}
 .tr-row {
   display: flex;
   gap: 12px;
@@ -1118,11 +1180,32 @@ button.choice:hover {
   color: var(--ink-soft);
   font-style: italic;
 }
+.tr-meta {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.tr-officer {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink);
+}
 .tr-answer {
   margin: 4px 0 0;
   font-size: 13px;
   color: var(--green);
   font-weight: 600;
+}
+.empty-log-filter {
+  margin: 0;
+  padding: 18px;
+  text-align: center;
+  color: var(--ink-soft);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 
 /* ---------- Results ---------- */
