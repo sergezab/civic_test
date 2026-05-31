@@ -3,10 +3,12 @@ import type { Question } from "../data/questions";
 import type { UseSpeech } from "../hooks/useSpeech";
 import type { Mode } from "./StartScreen";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
+import { useRecorder } from "../hooks/useRecorder";
 import {
   checkHealth,
   gradeAnswer,
   synthesizeSpeech,
+  transcribeAudio,
   type GradeResult,
   type Verdict,
 } from "../api/interview";
@@ -21,7 +23,14 @@ interface InterviewScreenProps {
   onHome: () => void;
 }
 
-type Stage = "ready" | "recording" | "edit" | "grading" | "result";
+type Stage =
+  | "ready"
+  | "recording"
+  | "rec-audio"
+  | "transcribing"
+  | "edit"
+  | "grading"
+  | "result";
 type Server = "checking" | "ok" | "down";
 
 interface LogEntry {
@@ -50,6 +59,8 @@ export function InterviewScreen({
   onHome,
 }: InterviewScreenProps) {
   const rec = useSpeechRecognition();
+  const recorder = useRecorder();
+  const canRecord = !rec.supported && recorder.supported;
   const [server, setServer] = useState<Server>("checking");
   const [index, setIndex] = useState(0);
   const [stage, setStage] = useState<Stage>(rec.supported ? "ready" : "edit");
@@ -115,6 +126,29 @@ export function InterviewScreen({
     setAnswer("");
     rec.start();
     setStage("recording");
+  };
+
+  const startAudioRecording = async () => {
+    setNetError(null);
+    setAnswer("");
+    const ok = await recorder.start();
+    if (ok) setStage("rec-audio");
+    else setNetError("Couldn't access the microphone — type your answer instead.");
+  };
+
+  const stopAudioRecording = async () => {
+    const blob = await recorder.stop();
+    if (!blob) {
+      setStage("edit");
+      return;
+    }
+    setStage("transcribing");
+    try {
+      setAnswer(await transcribeAudio(blob));
+    } catch {
+      setNetError("Transcription failed — type your answer instead.");
+    }
+    setStage("edit");
   };
 
   const submit = async () => {
@@ -228,7 +262,7 @@ export function InterviewScreen({
                 <p className="tr-q">{e.question}</p>
                 <p className="tr-heard">You said: “{e.heard || "—"}”</p>
                 {e.verdict !== "correct" && (
-                  <p className="tr-correct">Answer: {e.correctAnswer}</p>
+                  <p className="tr-answer">Answer: {e.correctAnswer}</p>
                 )}
               </div>
             </div>
@@ -272,7 +306,8 @@ export function InterviewScreen({
         <h2 className="question-text">{q.question}</h2>
       </div>
 
-      {speech.supported && stage !== "recording" && (
+      {speech.supported &&
+        (stage === "ready" || stage === "edit" || stage === "result") && (
         <button
           className="repeat-btn"
           onClick={() => speech.play(q.id, q.question)}
@@ -292,6 +327,18 @@ export function InterviewScreen({
           <div className="live-transcript" aria-live="polite">
             <span className="rec-dot" /> Listening…
             <p>{rec.transcript || "Speak your answer."}</p>
+          </div>
+        )}
+
+        {stage === "rec-audio" && (
+          <div className="live-transcript" aria-live="polite">
+            <span className="rec-dot" /> Recording… speak your answer, then stop.
+          </div>
+        )}
+
+        {stage === "transcribing" && (
+          <div className="interview-prompt grading">
+            <span className="rec-dot" /> Transcribing your answer…
           </div>
         )}
 
@@ -342,9 +389,13 @@ export function InterviewScreen({
               <button className="mic-btn" onClick={startRecording}>
                 🎤 Answer out loud
               </button>
+            ) : canRecord ? (
+              <button className="mic-btn" onClick={startAudioRecording}>
+                🎤 Record answer
+              </button>
             ) : null}
             <button className="btn btn-ghost" onClick={() => setStage("edit")}>
-              {rec.supported ? "Type instead" : "Type your answer"}
+              {rec.supported || canRecord ? "Type instead" : "Type your answer"}
             </button>
           </>
         )}
@@ -352,6 +403,12 @@ export function InterviewScreen({
         {stage === "recording" && (
           <button className="mic-btn is-recording" onClick={rec.stop}>
             ■ Stop &amp; review
+          </button>
+        )}
+
+        {stage === "rec-audio" && (
+          <button className="mic-btn is-recording" onClick={stopAudioRecording}>
+            ■ Stop &amp; transcribe
           </button>
         )}
 
@@ -364,11 +421,15 @@ export function InterviewScreen({
             >
               Submit answer
             </button>
-            {rec.supported && (
+            {rec.supported ? (
               <button className="btn btn-ghost" onClick={startRecording}>
                 🎤 Re-record
               </button>
-            )}
+            ) : canRecord ? (
+              <button className="btn btn-ghost" onClick={startAudioRecording}>
+                🎤 Re-record
+              </button>
+            ) : null}
           </>
         )}
 

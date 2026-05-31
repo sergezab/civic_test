@@ -41,8 +41,23 @@ export async function gradeAnswer(
   return (await r.json()) as GradeResult;
 }
 
-// Phase 3 wires /tts (Piper) for spoken feedback. Returns a playable object URL,
-// or null if TTS is unavailable so callers can fall back to text/browser speech.
+// Server-side STT (faster-whisper) for browsers without the Web Speech API.
+export async function transcribeAudio(blob: Blob): Promise<string> {
+  const ext = blob.type.includes("ogg")
+    ? "ogg"
+    : blob.type.includes("mp4") || blob.type.includes("mpeg")
+      ? "mp4"
+      : "webm";
+  const form = new FormData();
+  form.append("file", blob, `answer.${ext}`);
+  const r = await fetch(`${INTERVIEW_API_BASE}/stt`, { method: "POST", body: form });
+  if (!r.ok) throw new Error(`stt request failed (${r.status})`);
+  const data = (await r.json()) as { text?: string };
+  return data.text ?? "";
+}
+
+// /tts (Piper) for spoken feedback. Returns a playable object URL, or null if
+// TTS is unavailable so callers can fall back to text.
 export async function synthesizeSpeech(text: string): Promise<string | null> {
   try {
     const r = await fetch(`${INTERVIEW_API_BASE}/tts`, {

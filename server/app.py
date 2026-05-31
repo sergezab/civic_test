@@ -6,16 +6,19 @@ Run locally:  uvicorn app:app --host 0.0.0.0 --port 8088
 
 from __future__ import annotations
 
+import os
 import time
 from collections import defaultdict, deque
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 import config
 import grader
+import stt as stt_mod
+import tts as tts_mod
 
 app = FastAPI(title="Civics Interview API", version="0.1.0")
 
@@ -72,3 +75,37 @@ def grade_endpoint(req: GradeRequest, request: Request):
         accepted = ["(no accepted answer supplied)"]
 
     return grader.grade(req.question, accepted, transcript)
+
+
+class TTSRequest(BaseModel):
+    text: str
+
+
+@app.post("/tts")
+def tts_endpoint(req: TTSRequest, request: Request):
+    ip = request.client.host if request.client else "unknown"
+    if not _rate_ok(ip):
+        return JSONResponse(status_code=429, content={"error": "rate_limited"})
+    wav = tts_mod.synthesize(req.text)
+    if not wav:
+        return JSONResponse(status_code=503, content={"error": "tts_unavailable"})
+    return Response(content=wav, media_type="audio/wav")
+
+
+@app.post("/stt")
+async def stt_endpoint(request: Request, file: UploadFile = File(...)):
+    ip = request.client.host if request.client else "unknown"
+    if not _rate_ok(ip):
+        return JSONResponse(status_code=429, content={"error": "rate_limited"})
+    data = await file.read()
+    if not data:
+        return JSONResponse(status_code=400, content={"error": "empty_audio"})
+    if len(data) > config.MAX_AUDIO_BYTES:
+        return JSONResponse(status_code=413, content={"error": "audio_too_large"})
+    name = file.filename or "audio.webm"
+    suffix = os.path.splitext(name)[1] or ".webm"
+    try:
+        text = stt_mod.transcribe(data, suffix=suffix)
+    except Exception:
+        return JSONResponse(status_code=500, content={"error": "stt_failed"})
+    return {"text": text}

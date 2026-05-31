@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
 
 def _origins(raw: str) -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()]
@@ -29,11 +31,15 @@ ALLOWED_ORIGINS = _origins(
 # Abuse guard
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "30"))
 
-# TTS (Piper) — wired in Phase 3
-PIPER_BIN = os.getenv("PIPER_BIN", "piper")
-PIPER_VOICE = os.getenv("PIPER_VOICE", "")  # path to a .onnx voice model
+# TTS — Piper (preferred) with macOS `say` fallback
+TTS_ENGINE = os.getenv("TTS_ENGINE", "piper")  # piper | say | auto
+PIPER_VOICE = os.getenv(
+    "PIPER_VOICE", os.path.join(_HERE, "voices", "en_US-lessac-medium.onnx")
+)
+TTS_TIMEOUT = int(os.getenv("TTS_TIMEOUT", "30"))
 
-# STT (faster-whisper) — wired in Phase 3
+# STT (faster-whisper)
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base.en")
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "int8")
+MAX_AUDIO_BYTES = int(os.getenv("MAX_AUDIO_BYTES", str(12 * 1024 * 1024)))

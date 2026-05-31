@@ -586,6 +586,298 @@ button.choice:hover {
   transition: width 0.25s ease;
 }
 
+/* ---------- Interview ---------- */
+.interview-screen {
+  gap: 16px;
+}
+
+.interview-prompt {
+  background: #fff;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 26px;
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: 17px;
+}
+.interview-prompt.grading {
+  color: var(--navy-600);
+  font-weight: 600;
+}
+
+.live-transcript {
+  background: #fff;
+  border: 2px solid var(--navy-500);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  min-height: 96px;
+  box-shadow: var(--shadow-sm);
+  color: var(--navy-600);
+  font-weight: 600;
+}
+.live-transcript p {
+  margin: 10px 0 0;
+  color: var(--ink);
+  font-weight: 400;
+  font-size: 18px;
+  line-height: 1.5;
+}
+.rec-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--red);
+  margin-right: 8px;
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.answer-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.answer-edit label {
+  font-size: 13px;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+.answer-input {
+  width: 100%;
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-family: inherit;
+  font-size: 17px;
+  color: var(--ink);
+  resize: vertical;
+  box-shadow: var(--shadow-sm);
+}
+.answer-input:focus {
+  outline: none;
+  border-color: var(--navy-500);
+}
+.net-error {
+  color: var(--red);
+  font-size: 14px;
+  margin: 4px 0 0;
+}
+
+.officer-result {
+  background: #fff;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  box-shadow: var(--shadow-sm);
+}
+.officer-result.verdict-correct {
+  border-color: var(--green-edge);
+  background: var(--green-bg);
+}
+.officer-result.verdict-incorrect {
+  border-color: var(--red-edge);
+  background: var(--red-bg);
+}
+.officer-result.verdict-partial {
+  border-color: #e8c98a;
+  background: #fdf6e7;
+}
+.verdict-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.verdict-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 700;
+}
+.verdict-correct .verdict-icon {
+  background: var(--green);
+}
+.verdict-incorrect .verdict-icon {
+  background: var(--red);
+}
+.verdict-partial .verdict-icon {
+  background: #c79224;
+}
+.verdict-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.officer-feedback {
+  margin: 6px 0 12px;
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.heard-line {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+.answer-line {
+  margin: 6px 0 0;
+  font-size: 15px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.mic-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 16px 30px;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  background: var(--navy-600);
+  color: #fff;
+  box-shadow: var(--shadow);
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+.mic-btn:hover {
+  transform: translateY(-1px);
+  background: var(--navy-500);
+}
+.mic-btn.is-recording {
+  background: var(--red);
+  animation: pulse 1.4s infinite;
+}
+
+.interview-footer {
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+.interview-status {
+  width: 100%;
+  max-width: 700px;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.interview-status .progress-label {
+  margin: 0;
+}
+.interview-score {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--green);
+  background: var(--green-bg);
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+
+.server-down {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px;
+  max-width: 560px;
+  margin: 20px auto 0;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+.server-down h2 {
+  font-family: var(--serif);
+  color: var(--navy-900);
+  margin: 0 0 10px;
+}
+.server-down pre {
+  background: #0e2748;
+  color: #cfe0f5;
+  padding: 12px 14px;
+  border-radius: 10px;
+  overflow-x: auto;
+  font-size: 13px;
+  text-align: left;
+}
+.server-down .muted {
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.transcript-review {
+  width: 100%;
+  max-width: 640px;
+  margin: 8px auto 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+.tr-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.tr-row.tr-correct {
+  border-left-color: var(--green);
+}
+.tr-row.tr-incorrect {
+  border-left-color: var(--red);
+}
+.tr-row.tr-partial {
+  border-left-color: #c79224;
+}
+.tr-icon {
+  font-weight: 700;
+  color: var(--navy-600);
+}
+.tr-row.tr-correct .tr-icon {
+  color: var(--green);
+}
+.tr-row.tr-incorrect .tr-icon {
+  color: var(--red);
+}
+.tr-body {
+  flex: 1;
+}
+.tr-q {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--ink);
+  font-size: 15px;
+}
+.tr-heard {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+.tr-answer {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--green);
+  font-weight: 600;
+}
+
 /* ---------- Results ---------- */
 .results-screen {
   gap: 6px;

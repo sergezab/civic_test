@@ -10,6 +10,7 @@ import { StartScreen } from "./components/StartScreen";
 import type { QuizConfig } from "./components/StartScreen";
 import { QuizScreen } from "./components/QuizScreen";
 import { FlashScreen } from "./components/FlashScreen";
+import { InterviewScreen } from "./components/InterviewScreen";
 import { ResultsScreen } from "./components/ResultsScreen";
 
 type Phase = "start" | "quiz" | "results";
@@ -136,6 +137,16 @@ export default function App() {
           (config?.format === "flash" ? (
             <FlashScreen
               cards={session}
+              speech={speech}
+              isBookmarked={isBookmarked}
+              onToggleBookmark={toggleBookmark}
+              onRestart={retry}
+              onHome={goHome}
+            />
+          ) : config?.format === "interview" ? (
+            <InterviewScreen
+              questions={session}
+              mode={config.mode}
               speech={speech}
               isBookmarked={isBookmarked}
               onToggleBookmark={toggleBookmark}

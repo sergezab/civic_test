@@ -101,14 +101,22 @@ export function StartScreen({ onStart, speechSupported, bookmarkCount }: StartSc
           onClick={() => start("test")}
           disabled={noBookmarks}
         >
-          {isFlash ? "Study 10 cards" : "Start 10-question test"}
+          {isInterview
+            ? "Start mock interview"
+            : isFlash
+              ? "Study 10 cards"
+              : "Start 10-question test"}
         </button>
         <button
           className="btn btn-ghost"
           onClick={() => start("practice")}
           disabled={noBookmarks}
         >
-          {isFlash ? "Flip through all" : "Practice every question"}
+          {isInterview
+            ? "Practice (no pressure)"
+            : isFlash
+              ? "Flip through all"
+              : "Practice every question"}
         </button>
       </div>
 
