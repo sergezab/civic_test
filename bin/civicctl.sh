@@ -163,7 +163,7 @@ cmd_start() {
         warn "Backend already running (PID $(cat "$BACKEND_PID_FILE"))"
     elif [[ ! -x "$PY" ]]; then
         fail "Backend python not found at: $PY"
-        echo "  Create the venv: python3 -m venv server/.venv && server/.venv/bin/pip install -r server/requirements.txt" >&2
+        echo "  Create the venv: python3 -m venv --prompt civictest server/.venv && server/.venv/bin/pip install -r server/requirements.txt" >&2
         echo "  Or set CIVIC_PY to a python with fastapi+uvicorn installed." >&2
     elif ! "$PY" -c "import fastapi, uvicorn" 2>/dev/null; then
         fail "fastapi/uvicorn not installed in $PY"
@@ -331,7 +331,7 @@ cmd_repair() {
     info "Verifying backend venv ($PY)…"
     if [[ ! -x "$PY" ]]; then
         warn "venv missing — creating server/.venv…"
-        if python3 -m venv "$SERVER_DIR/.venv"; then PY="$SERVER_DIR/.venv/bin/python"; ok "venv created"
+        if python3 -m venv --prompt civictest "$SERVER_DIR/.venv"; then PY="$SERVER_DIR/.venv/bin/python"; ok "venv created"
         else fail "could not create venv"; ((errors++)); fi
     fi
     if [[ -x "$PY" ]]; then
