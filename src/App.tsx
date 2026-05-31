@@ -50,7 +50,8 @@ export default function App() {
         cfg.mode === "test"
           ? Math.min(cfg.count ?? TEST_LENGTH, pool.length)
           : undefined;
-      const effectiveCfg: QuizConfig = { ...cfg, count };
+      const effectiveCfg: QuizConfig =
+        count === undefined ? { pool: cfg.pool, mode: cfg.mode, format: cfg.format } : { ...cfg, count };
 
       let list = cfg.mode === "test" ? sample(pool, count ?? TEST_LENGTH) : shuffle(pool);
 
@@ -58,7 +59,7 @@ export default function App() {
         const pos = list.findIndex((q) => q.id === startId);
         if (pos > 0) {
           const [q] = list.splice(pos, 1);
-          list = [q, ...list];
+          if (q) list = [q, ...list];
         }
       }
 
@@ -89,7 +90,7 @@ export default function App() {
     if (didAutoStartRef.current) return;
     const { format, mode, pool, count, q } = readUrlParams();
     if (format && mode && pool) {
-      const cfg = { format, mode, pool, count: count ?? undefined } as QuizConfig;
+      const cfg: QuizConfig = count === null ? { format, mode, pool } : { format, mode, pool, count };
       const timer = window.setTimeout(() => {
         didAutoStartRef.current = true;
         startQuizRef.current?.(cfg, q ?? undefined);

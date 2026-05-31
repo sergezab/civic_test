@@ -60,11 +60,18 @@ describe('buildChoices', () => {
     const choices = buildChoices(mockQuestion)
     const correct = choices.filter((c) => c.correct)
     expect(correct).toHaveLength(1)
-    expect(correct[0].text).toBe('the Constitution')
+    expect(correct[0]?.text).toBe('the Constitution')
   })
 
   it('returns empty array for spoken questions', () => {
-    const spoken: Question = { ...mockQuestion, type: 'spoken', correct: undefined, distractors: undefined }
+    const spoken: Question = {
+      id: 2,
+      category: 'Test',
+      question: 'Who is one of your state senators now?',
+      type: 'spoken',
+      senior: false,
+      acceptableAnswers: ['Answers will vary.'],
+    }
     expect(buildChoices(spoken)).toHaveLength(0)
   })
 })

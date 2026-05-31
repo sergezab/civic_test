@@ -65,7 +65,8 @@ function parseSttResponse(data: unknown): string {
 
 export async function checkHealth(signal?: AbortSignal): Promise<boolean> {
   try {
-    const r = await fetch(`${INTERVIEW_API_BASE}/health`, { signal });
+    const init: RequestInit | undefined = signal ? { signal } : undefined;
+    const r = await fetch(`${INTERVIEW_API_BASE}/health`, init);
     return r.ok;
   } catch {
     return false;

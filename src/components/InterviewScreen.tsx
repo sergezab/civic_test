@@ -191,6 +191,7 @@ export function InterviewScreen({
       speech.stop();
       if (rec.listening) rec.stop();
       const cq = deckRef.current[indexRef.current];
+      if (!cq) return;
       const entry: LogEntry = {
         id: cq.id,
         question: cq.question,
@@ -253,6 +254,10 @@ export function InterviewScreen({
       setStage("grading");
       setNetError(null);
       const cq = deckRef.current[indexRef.current];
+      if (!cq) {
+        setStage("ready");
+        return;
+      }
       ilog("iv", "submit", {
         q: cq.id,
         attempt: attemptRef.current,
@@ -503,6 +508,8 @@ export function InterviewScreen({
   }
 
   // ── Active question ───────────────────────────────────────────
+  if (!q) return null;
+
   const correctSoFar = log.filter((e) => e.outcome === "correct").length;
   const bookmarked = isBookmarked(q.id);
 

@@ -74,6 +74,7 @@ export function useSpeechRecognition(lang = "en-US"): UseSpeechRecognition {
       let gotFinal = false;
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
+        if (!res?.[0]) continue;
         const txt = res[0].transcript;
         if (res.isFinal) {
           finalRef.current += txt + " ";
