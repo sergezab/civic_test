@@ -2,6 +2,7 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 pydantic>=2
 python-multipart>=0.0.9
+python-dotenv>=1.0
 faster-whisper>=1.0
 piper-tts>=1.4
 # llm-core is installed editable from the sibling repo — see README.md:

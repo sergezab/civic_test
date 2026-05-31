@@ -6,6 +6,14 @@ import os
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
+# Load server/.env if present (so config works regardless of how uvicorn is launched).
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(_HERE, ".env"))
+except ImportError:
+    pass
+
 
 def _origins(raw: str) -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()]
