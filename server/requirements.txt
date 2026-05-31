@@ -1,0 +1,6 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2
+# llm-core is installed editable from the sibling repo — see README.md:
+#   uv pip install -e /Users/astra/dev/startups/llm_core
+# Phase 3 adds: faster-whisper (STT) and Piper (TTS, via system binary)
