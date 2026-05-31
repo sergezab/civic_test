@@ -4,11 +4,11 @@ import type { UseSpeech } from "../hooks/useSpeech";
 import type { Mode } from "./StartScreen";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useRecorder } from "../hooks/useRecorder";
+import { useFeedbackAudio } from "../hooks/useFeedbackAudio";
 import { ilog, now, since } from "../utils/log";
 import {
   checkHealth,
   gradeAnswer,
-  synthesizeSpeech,
   transcribeAudio,
   type GradeResult,
   type Verdict,
@@ -73,6 +73,7 @@ export function InterviewScreen({
 }: InterviewScreenProps) {
   const rec = useSpeechRecognition();
   const recorder = useRecorder();
+  const { play: playFeedback, stop: stopFeedbackAudio } = useFeedbackAudio(speech.stop);
   const canRecord = !rec.supported && recorder.supported;
   const autoAvailable = rec.supported; // hands-free needs Web Speech transcripts
   // Mic + speech recognition only work on a secure origin (https or localhost).
@@ -124,7 +125,6 @@ export function InterviewScreen({
   const [paused, setPaused] = useState(false);
 
   // Refs so delayed callbacks (audio onended, silence timers) read fresh values.
-  const fbAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastReadRef = useRef<number | null>(null);
   const autoRef = useRef(auto);
   const pausedRef = useRef(paused);
@@ -187,53 +187,6 @@ export function InterviewScreen({
     checkHealth(ctrl.signal).then((ok) => setServer(ok ? "ok" : "down"));
     return () => ctrl.abort();
   }, []);
-
-  const stopFeedbackAudio = useCallback(() => {
-    if (fbAudioRef.current) {
-      fbAudioRef.current.onended = null;
-      fbAudioRef.current.pause();
-      fbAudioRef.current = null;
-    }
-  }, []);
-
-  const playFeedback = useCallback(
-    async (text: string, onDone?: () => void) => {
-      speech.stop();
-      let fired = false;
-      let url: string | null = null;
-      // finish() runs once via any path (end/error/stall) and always frees the
-      // object URL so the blob can't leak even on the safety-timeout path.
-      const finish = () => {
-        if (fired) return;
-        fired = true;
-        if (url) URL.revokeObjectURL(url);
-        onDone?.();
-      };
-      const safety = window.setTimeout(finish, 20000); // never hang the auto loop
-
-      try {
-        url = await synthesizeSpeech(text);
-      } catch {
-        url = null;
-      }
-      if (!url) {
-        window.clearTimeout(safety);
-        setTimeout(finish, Math.min(6000, 1600 + text.length * 35));
-        return;
-      }
-      stopFeedbackAudio();
-      const audio = new Audio(url);
-      fbAudioRef.current = audio;
-      const done = () => {
-        window.clearTimeout(safety);
-        finish();
-      };
-      audio.onended = done;
-      audio.onerror = done;
-      audio.play().catch(done);
-    },
-    [speech, stopFeedbackAudio],
-  );
 
   const beginListening = useCallback(() => {
     if (!autoRef.current || pausedRef.current || !rec.supported) return;
@@ -390,8 +343,6 @@ export function InterviewScreen({
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auto, stage, answerSecs]);
-
-  useEffect(() => () => stopFeedbackAudio(), [stopFeedbackAudio]);
 
   // Surface speech-recognition failures (network/not-allowed/audio-capture) so a
   // dead mic isn't silently graded as "I didn't catch the answer".
