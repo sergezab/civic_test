@@ -14,6 +14,8 @@ export default defineConfig({
   plugins: [react(), ...(useHttps ? [basicSsl()] : [])],
   server: {
     host: true, // expose on the LAN (e.g. http(s)://macstudio.lan:5173)
+    // Vite ≥5 blocks non-loopback Host headers by default; allow LAN hostnames.
+    allowedHosts: ['.lan', '.local'],
     proxy: {
       '/grade': apiProxy,
       '/tts': apiProxy,

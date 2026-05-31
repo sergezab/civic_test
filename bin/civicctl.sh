@@ -42,7 +42,7 @@ SERVER_DIR="$REPO_ROOT/server"
 # ── Defaults ─────────────────────────────────────────────────────────────────
 PORT=8088
 UI_PORT=5173
-UI_HOST="127.0.0.1"
+UI_HOST="0.0.0.0"   # bind wildcard so http://<host>.lan:5173 works on the LAN
 RELOAD="--reload"
 
 # ── Colours ──────────────────────────────────────────────────────────────────
@@ -125,6 +125,12 @@ cmd_start() {
     echo -e "${BOLD}║   Civic Test — Starting Services      ║${NC}"
     echo -e "${BOLD}╚═══════════════════════════════════════╝${NC}"
     echo ""
+
+    # Sweep any orphan listeners (children of a previous run that outlived their
+    # PID file) so the new processes can bind cleanly instead of falling back to
+    # localhost-only or failing with "Address already in use".
+    is_running "$BACKEND_PID_FILE"  || free_port "$PORT"    "backend"
+    is_running "$FRONTEND_PID_FILE" || free_port "$UI_PORT" "frontend"
 
     # ── Backend (uvicorn) ────────────────────────────────────────────────────
     if is_running "$BACKEND_PID_FILE"; then
