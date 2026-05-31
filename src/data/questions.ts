@@ -354,7 +354,8 @@ export const questions: Question[] = [
     senior: false,
     acceptableAnswers: ["Answers will vary by congressional district."],
     guidance:
-      "This depends on your exact address, not just your state. Look up your U.S. Representative by ZIP code at house.gov. (Utah has four House districts; the Draper area falls in one of them depending on your street.)",
+      "Utah has four U.S. House districts (119th Congress, 2025–2027):\n• UT-1: Blake Moore (R)\n• UT-2: Celeste Maloy (R)\n• UT-3: Mike Kennedy (R)\n• UT-4: Burgess Owens (R)\n\nDraper (ZIP 84020) is in UT-4 — answer: Burgess Owens.\n\nNot sure of your district? Look up by ZIP at house.gov.",
+    note: "Representatives change after each election. Verify at house.gov if your interview is after November 2026.",
   },
   {
     id: 24,
