@@ -6,7 +6,7 @@ interface ProgressDotsProps {
 
 export function ProgressDots({ total, current, results }: ProgressDotsProps) {
   return (
-    <div className="progress">
+    <div className="progress" role="status" aria-live="polite">
       <span className="progress-label">
         Question {current + 1} of {total}
       </span>

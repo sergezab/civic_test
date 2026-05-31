@@ -1,10 +1,20 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import type { Page, Route } from '@playwright/test'
+
+async function clearAppStorage(page: Page) {
+  await page.evaluate(() => {
+    localStorage.removeItem('civic_bookmarks')
+    localStorage.removeItem('iv-answer-secs')
+    localStorage.removeItem('iv-mode')
+    localStorage.removeItem('iv-retry')
+  })
+}
 
 test.describe('Start screen', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/')
     // Clear bookmarks in localStorage before each test
-    await page.evaluate(() => localStorage.removeItem('civic_bookmarks'))
+    await clearAppStorage(page)
     await page.reload()
   })
 
@@ -30,7 +40,7 @@ test.describe('Quiz mode', () => {
 
   test('bookmark button toggles and persists', async ({ page }) => {
     await page.goto('/')
-    await page.evaluate(() => localStorage.removeItem('civic_bookmarks'))
+    await clearAppStorage(page)
     await page.getByRole('button', { name: 'Start 10-question test' }).click()
 
     // Initially not bookmarked
@@ -66,7 +76,7 @@ test.describe('Flash card mode', () => {
 
   test('bookmark button works in flash mode', async ({ page }) => {
     await page.goto('/', { waitUntil: 'commit' })
-    await page.evaluate(() => localStorage.removeItem('civic_bookmarks'))
+    await clearAppStorage(page)
     await page.reload()
     await page.getByRole('button', { name: 'Flash cards' }).click()
     await page.getByRole('button', { name: 'Study 10 cards' }).click()
@@ -74,5 +84,74 @@ test.describe('Flash card mode', () => {
     const bookmarkBtn = page.locator('.bookmark-btn')
     await bookmarkBtn.click()
     await expect(bookmarkBtn).toHaveAttribute('aria-pressed', 'true')
+  })
+})
+
+test.describe('Interview mode', () => {
+  test('shows a graceful server-down fallback', async ({ page }) => {
+    await page.route('**/health', (route) =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }),
+    )
+    await page.goto('/')
+    await clearAppStorage(page)
+    await page.reload()
+
+    await page.getByRole('button', { name: 'Interview' }).click()
+    await page.getByRole('button', { name: 'Start 10-question interview' }).click()
+
+    await expect(page.getByRole('heading', { name: /grader isn’t running/i })).toBeVisible()
+    await expect(page.getByText('Quiz and Flash-card modes work without it.')).toBeVisible()
+  })
+
+  test('supports typed wrong-answer retry without TTS', async ({ page }) => {
+    let gradeCalls = 0
+    await page.route('**/health', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+    )
+    await page.route('**/tts', (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: '{"error":"tts unavailable"}',
+      }),
+    )
+    await page.route('**/grade', async (route: Route) => {
+      gradeCalls += 1
+      const requestBody = route.request().postDataJSON() as { transcript?: string }
+      const correct = gradeCalls > 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          verdict: correct ? 'correct' : 'incorrect',
+          feedback: correct ? 'Correct.' : 'Not quite. Try again.',
+          correctAnswer: 'George Washington',
+          heard: requestBody.transcript ?? '',
+          model: null,
+          fallback: true,
+        }),
+      })
+    })
+
+    await page.goto('/')
+    await clearAppStorage(page)
+    await page.reload()
+
+    await page.getByRole('button', { name: 'Interview' }).click()
+    await page.getByRole('button', { name: 'Start 10-question interview' }).click()
+    await page.getByRole('checkbox', { name: /Retry wrong answers/ }).check()
+
+    await page.getByRole('button', { name: 'Type instead' }).click()
+    await page.getByLabel('Type your answer:').fill('Abraham Lincoln')
+    await page.getByRole('button', { name: 'Submit answer' }).click()
+
+    await expect(page.getByText('Not quite. Try again.')).toBeVisible()
+    await page.getByRole('button', { name: 'Try again' }).click()
+    await page.getByRole('button', { name: 'Type instead' }).click()
+    await page.getByLabel('Type your answer:').fill('George Washington')
+    await page.getByRole('button', { name: 'Submit answer' }).click()
+
+    await expect(page.getByText('Got it on the retry')).toBeVisible()
+    expect(gradeCalls).toBe(2)
   })
 })

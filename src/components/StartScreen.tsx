@@ -70,18 +70,21 @@ export function StartScreen({ onStart, speechSupported, bookmarkCount }: StartSc
         <button
           className={format === "quiz" ? "is-active" : ""}
           onClick={() => setFormat("quiz")}
+          aria-pressed={format === "quiz"}
         >
           Quiz
         </button>
         <button
           className={format === "flash" ? "is-active" : ""}
           onClick={() => setFormat("flash")}
+          aria-pressed={format === "flash"}
         >
           Flash cards
         </button>
         <button
           className={format === "interview" ? "is-active" : ""}
           onClick={() => setFormat("interview")}
+          aria-pressed={format === "interview"}
         >
           🎤 Interview
         </button>
@@ -98,18 +101,21 @@ export function StartScreen({ onStart, speechSupported, bookmarkCount }: StartSc
         <button
           className={pool === "all" ? "is-active" : ""}
           onClick={() => setPool("all")}
+          aria-pressed={pool === "all"}
         >
           All 100
         </button>
         <button
           className={pool === "senior" ? "is-active" : ""}
           onClick={() => setPool("senior")}
+          aria-pressed={pool === "senior"}
         >
           65/20 set (20)
         </button>
         <button
           className={pool === "bookmarks" ? "is-active" : ""}
           onClick={() => setPool("bookmarks")}
+          aria-pressed={pool === "bookmarks"}
         >
           ☆ Saved ({bookmarkCount})
         </button>
@@ -132,6 +138,7 @@ export function StartScreen({ onStart, speechSupported, bookmarkCount }: StartSc
                 key={n}
                 className={count === n ? "is-active" : ""}
                 onClick={() => setPreferredCount(n)}
+                aria-pressed={count === n}
               >
                 {n}
               </button>

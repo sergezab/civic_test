@@ -109,6 +109,7 @@ export function InterviewScreen({
 
   // Refs so delayed callbacks (audio onended, silence timers) read fresh values.
   const lastReadRef = useRef<number | null>(null);
+  const resultPanelRef = useRef<HTMLDivElement | null>(null);
   const autoRef = useRef(auto);
   const pausedRef = useRef(paused);
   const retryRef = useRef(retry);
@@ -310,6 +311,10 @@ export function InterviewScreen({
   useEffect(() => {
     if (rec.error) ilog("iv", "recognition error", { error: rec.error });
   }, [rec.error]);
+
+  useEffect(() => {
+    if (stage === "result") resultPanelRef.current?.focus();
+  }, [stage, result?.verdict]);
 
   // ── Manual controls ───────────────────────────────────────────
   const manualStart = () => {
@@ -518,6 +523,7 @@ export function InterviewScreen({
           <button
             className={interviewMode === "manual" ? "is-active" : ""}
             onClick={() => switchMode("manual")}
+            aria-pressed={interviewMode === "manual"}
           >
             ✋ Manual
           </button>
@@ -525,6 +531,7 @@ export function InterviewScreen({
             className={interviewMode === "auto" ? "is-active" : ""}
             onClick={() => switchMode("auto")}
             disabled={!autoAvailable}
+            aria-pressed={interviewMode === "auto"}
             title={
               autoAvailable
                 ? "Reads, listens, grades and advances by itself"
@@ -582,6 +589,7 @@ export function InterviewScreen({
             onClick={() => onToggleBookmark(q.id)}
             title={bookmarked ? "Remove from saved" : "Save for later"}
             aria-pressed={bookmarked}
+            aria-label={bookmarked ? "Remove from saved" : "Save for later"}
           >
             {bookmarked ? "★" : "☆"}
           </button>
@@ -597,7 +605,7 @@ export function InterviewScreen({
 
       <div className="answer-area">
         {rec.error && (
-          <p className="net-error">
+          <p className="net-error" role="alert">
             ⚠️ Speech recognition error: <strong>{rec.error}</strong>.
             {rec.error === "network"
               ? " Chrome's speech service needs an internet connection."
@@ -627,7 +635,11 @@ export function InterviewScreen({
               🔒 Your answer is transcribed and graded to give feedback — audio
               isn’t stored.
             </p>
-            {netError && <p className="net-error">{netError}</p>}
+            {netError && (
+              <p className="net-error" role="alert">
+                {netError}
+              </p>
+            )}
           </div>
         )}
 
@@ -658,7 +670,13 @@ export function InterviewScreen({
         )}
 
         {stage === "result" && result && (
-          <div className={`officer-result verdict-${result.verdict}`}>
+          <div
+            ref={resultPanelRef}
+            className={`officer-result verdict-${result.verdict}`}
+            tabIndex={-1}
+            role="status"
+            aria-live="polite"
+          >
             <div className="verdict-badge">
               <span className="verdict-icon">{OUTCOME_ICON[resultOutcome]}</span>
               <span className="verdict-label">{result.verdict}</span>
@@ -775,7 +793,11 @@ export function InterviewScreen({
             onChange={(e) => setAnswer(e.target.value)}
             rows={3}
           />
-          {netError && <p className="net-error">{netError}</p>}
+          {netError && (
+            <p className="net-error" role="alert">
+              {netError}
+            </p>
+          )}
           <button
             className="btn btn-primary btn-wide"
             onClick={() => submitText(answer)}

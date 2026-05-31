@@ -38,7 +38,7 @@ export function FlashScreen({
     if (card) {
       setUrlParams({ q: String(card.id), stage: flipped ? "back" : "front" });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card?.id, flipped]);
 
   if (done) {
@@ -102,6 +102,7 @@ export function FlashScreen({
             onClick={() => onToggleBookmark(card.id)}
             title={bookmarked ? "Remove from saved" : "Save for later"}
             aria-pressed={bookmarked}
+            aria-label={bookmarked ? "Remove from saved" : "Save for later"}
           >
             {bookmarked ? "★" : "☆"}
           </button>

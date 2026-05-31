@@ -68,6 +68,7 @@ export function QuizScreen({
             onClick={() => onToggleBookmark(question.id)}
             title={bookmarked ? "Remove from saved" : "Save for later"}
             aria-pressed={bookmarked}
+            aria-label={bookmarked ? "Remove from saved" : "Save for later"}
           >
             {bookmarked ? "★" : "☆"}
           </button>
