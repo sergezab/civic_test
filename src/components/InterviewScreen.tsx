@@ -5,6 +5,11 @@ import type { Mode } from "./StartScreen";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { useRecorder } from "../hooks/useRecorder";
 import { useFeedbackAudio } from "../hooks/useFeedbackAudio";
+import {
+  ANSWER_TIME_OPTIONS,
+  useInterviewPreferences,
+  type InterviewMode,
+} from "../hooks/useInterviewPreferences";
 import { ilog, now, since } from "../utils/log";
 import {
   checkHealth,
@@ -33,7 +38,6 @@ type Stage =
   | "result"
   | "edit";
 type Server = "checking" | "ok" | "down";
-type IvMode = "manual" | "auto";
 /** correct = right on first try; review = right only after a retry; missed = never right. */
 type Outcome = "correct" | "review" | "missed";
 
@@ -58,7 +62,6 @@ const OUTCOME_ICON: Record<Outcome, string> = {
   missed: "✕",
 };
 
-const ANSWER_TIME_OPTIONS = [30, 45, 60, 90, 120];
 const fmtTime = (s: number) =>
   `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
 
@@ -74,41 +77,21 @@ export function InterviewScreen({
   const rec = useSpeechRecognition();
   const recorder = useRecorder();
   const { play: playFeedback, stop: stopFeedbackAudio } = useFeedbackAudio(speech.stop);
+  const {
+    answerSecs,
+    interviewMode,
+    retry,
+    setAnswerSecs,
+    setInterviewMode,
+    setRetry,
+  } = useInterviewPreferences();
   const canRecord = !rec.supported && recorder.supported;
   const autoAvailable = rec.supported; // hands-free needs Web Speech transcripts
   // Mic + speech recognition only work on a secure origin (https or localhost).
   const insecureVoice =
     typeof window !== "undefined" && !window.isSecureContext;
 
-  const [ivMode, setIvMode] = useState<IvMode>(() => {
-    try {
-      const v = localStorage.getItem("iv-mode");
-      if (v === "auto" || v === "manual") return v;
-    } catch {
-      /* ignore */
-    }
-    return "manual";
-  });
-  const auto = ivMode === "auto" && autoAvailable;
-
-  const [retry, setRetry] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("iv-retry") === "1";
-    } catch {
-      return false;
-    }
-  });
-
-  // Per-answer time limit (seconds): 30 default, up to 120.
-  const [answerSecs, setAnswerSecs] = useState<number>(() => {
-    try {
-      const n = Number(localStorage.getItem("iv-answer-secs"));
-      if (n >= 30 && n <= 120) return n;
-    } catch {
-      /* ignore */
-    }
-    return 30;
-  });
+  const auto = interviewMode === "auto" && autoAvailable;
   const [remaining, setRemaining] = useState(answerSecs);
 
   const [server, setServer] = useState<Server>("checking");
@@ -142,28 +125,6 @@ export function InterviewScreen({
   useEffect(() => void (deckRef.current = deck), [deck]);
   const transcriptRef = useRef("");
   useEffect(() => void (transcriptRef.current = rec.transcript), [rec.transcript]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("iv-mode", ivMode);
-    } catch {
-      /* ignore */
-    }
-  }, [ivMode]);
-  useEffect(() => {
-    try {
-      localStorage.setItem("iv-retry", retry ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-  }, [retry]);
-  useEffect(() => {
-    try {
-      localStorage.setItem("iv-answer-secs", String(answerSecs));
-    } catch {
-      /* ignore */
-    }
-  }, [answerSecs]);
 
   const q = deck[index];
 
@@ -432,12 +393,12 @@ export function InterviewScreen({
     lastReadRef.current = null;
   };
 
-  const switchMode = (next: IvMode) => {
-    if (next === ivMode) return;
+  const switchMode = (next: InterviewMode) => {
+    if (next === interviewMode) return;
     if (rec.listening) rec.stop();
     stopFeedbackAudio();
     speech.stop();
-    setIvMode(next);
+    setInterviewMode(next);
     setStage("ready");
     setResult(null);
     if (next === "auto" && autoAvailable) {
@@ -555,13 +516,13 @@ export function InterviewScreen({
       <div className="iv-controls">
         <div className="mode-toggle" role="group" aria-label="Interview mode">
           <button
-            className={ivMode === "manual" ? "is-active" : ""}
+            className={interviewMode === "manual" ? "is-active" : ""}
             onClick={() => switchMode("manual")}
           >
             ✋ Manual
           </button>
           <button
-            className={ivMode === "auto" ? "is-active" : ""}
+            className={interviewMode === "auto" ? "is-active" : ""}
             onClick={() => switchMode("auto")}
             disabled={!autoAvailable}
             title={
