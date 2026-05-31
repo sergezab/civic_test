@@ -642,7 +642,7 @@ export function InterviewScreen({
         <div className="server-down">
           <h2>The interview grader isn’t running</h2>
           <p>Interview mode needs the local grading server. Start it, then reload:</p>
-          <pre>cd server &amp;&amp; uv run uvicorn app:app --port 8088</pre>
+          <pre>cd server &amp;&amp; uv run uvicorn app:app --port 8090</pre>
           <p className="muted">Quiz and Flash-card modes work without it.</p>
           <button className="btn btn-primary" onClick={onHome}>
             Back to start

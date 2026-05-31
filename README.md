@@ -199,8 +199,9 @@ reverse proxy); set `VITE_INTERVIEW_API_URL` to call the backend directly instea
 ### Configuration (env, `server/.env.example`)
 | Var | Default | Purpose |
 |---|---|---|
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint |
-| `GRADER_PROVIDER` / `GRADER_MODEL` | `ollama` / `qwen3.5:9b` | grading LLM |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint (when `GRADER_PROVIDER=ollama`) |
+| `GRADER_PROVIDER` / `GRADER_MODEL` | `ollama` / `qwen3.5:9b` | grading LLM — `ollama` \| `mlx` \| cloud |
+| `MLX_BASE_URL` / `MLX_API_KEY` | `http://localhost:8088` / — | local MLX server (when `GRADER_PROVIDER=mlx`) |
 | `GRADE_TIMEOUT` / `GRADE_MAX_TOKENS` | `45` / `300` | grading limits |
 | `ALLOWED_ORIGINS` | `localhost:5173` | CORS allow-list |
 | `RATE_LIMIT_PER_MIN` | `30` | per-IP request cap |
@@ -250,7 +251,7 @@ npm run dev:https      # serves https://<host>:5173 (self-signed cert — accept
 The dev server **proxies** the interview API (`/grade`, `/tts`, `/stt`, `/health`)
 to the backend, so everything stays on one origin — no CORS and no mixed-content
 block when served over HTTPS. Point the proxy at a non-default backend with
-`API_PROXY=http://host:8088 npm run dev:https`. In production, serve over HTTPS and
+`API_PROXY=http://host:8090 npm run dev:https`. In production, serve over HTTPS and
 set `VITE_INTERVIEW_API_URL` (or reverse-proxy the API under the same origin).
 
 ## Diagnostics (latency)

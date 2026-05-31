@@ -19,13 +19,25 @@ def _origins(raw: str) -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 
-# LLM backend (reuses the user's local Ollama via llm_core)
+# LLM backend. GRADER_PROVIDER selects the path in grader.py:
+#   "ollama" → direct /api/chat (think=False)   — local, default
+#   "mlx"    → direct OpenAI-compatible /v1/chat/completions on a local MLX server
+#   anything else (gemini/gpt/claude/…) → shared llm_core
+# Ollama and MLX are called directly (not via llm_core): the shared library has
+# no MLX provider, and Ollama needs the think=False toggle llm_core can't set.
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 GRADER_PROVIDER = os.getenv("GRADER_PROVIDER", "ollama")
 GRADER_MODEL = os.getenv("GRADER_MODEL", "qwen3.5:9b")
 GRADE_TIMEOUT = int(os.getenv("GRADE_TIMEOUT", "45"))
 GRADE_MAX_TOKENS = int(os.getenv("GRADE_MAX_TOKENS", "300"))
 GRADE_TEMPERATURE = float(os.getenv("GRADE_TEMPERATURE", "0.2"))
+
+# Local MLX server (used when GRADER_PROVIDER=mlx). OpenAI-compatible endpoint;
+# either a base URL or a /v1 URL is accepted. Default port 8088 matches the
+# com.astra.mlx-vlm LaunchAgent (see server/DEPLOY.md). MLX_API_KEY is optional
+# (only needed if the server is secured behind a tunnel).
+MLX_BASE_URL = os.getenv("MLX_BASE_URL", "http://localhost:8088")
+MLX_API_KEY = os.getenv("MLX_API_KEY", "")
 
 # Request hygiene
 MAX_TRANSCRIPT_CHARS = int(os.getenv("MAX_TRANSCRIPT_CHARS", "600"))

@@ -1,6 +1,6 @@
 """Civics Interview API — grades spoken answers, speaks feedback, and transcribes audio.
 
-Run locally:  uvicorn app:app --host 0.0.0.0 --port 8088
+Run locally:  uvicorn app:app --host 0.0.0.0 --port 8090
 """
 
 from __future__ import annotations

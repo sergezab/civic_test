@@ -19,7 +19,7 @@ cp .env.example .env                    # adjust OLLAMA_HOST / GRADER_MODEL etc.
 
 ```bash
 # Ollama must be reachable with the grader model pulled.
-uv run uvicorn app:app --host 0.0.0.0 --port 8088
+uv run uvicorn app:app --host 0.0.0.0 --port 8090
 ```
 
 `config.py` auto-loads `server/.env`, so plain `uvicorn app:app` picks up your
@@ -50,8 +50,9 @@ can only evaluate civics-test answers.
 
 | Var | Default | Purpose |
 |---|---|---|
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint |
-| `GRADER_PROVIDER` / `GRADER_MODEL` | `ollama` / `qwen3.5:9b` | grading LLM |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint (when `GRADER_PROVIDER=ollama`) |
+| `GRADER_PROVIDER` / `GRADER_MODEL` | `ollama` / `qwen3.5:9b` | grading LLM — `ollama` \| `mlx` \| cloud (`gemini`/`gpt`/`claude`…) |
+| `MLX_BASE_URL` / `MLX_API_KEY` | `http://localhost:8088` / — | local MLX server (when `GRADER_PROVIDER=mlx`); key optional |
 | `GRADE_TIMEOUT` / `GRADE_MAX_TOKENS` / `GRADE_TEMPERATURE` | `45` / `300` / `0.2` | grading limits |
 | `ALLOWED_ORIGINS` | `localhost:5173,127.0.0.1:5173` | CORS allow-list (direct access) |
 | `RATE_LIMIT_PER_MIN` / `MAX_TRANSCRIPT_CHARS` | `30` / `600` | abuse guards |

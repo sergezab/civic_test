@@ -6,6 +6,25 @@
 
 ---
 
+## Tooling — use Serena MCP for code
+
+**Always use the Serena MCP server for navigating and editing code in this repo.**
+Prefer its semantic tools over raw file reads / text search whenever you're working
+with TypeScript or Python symbols:
+
+- **Explore** with `get_symbols_overview`, `find_symbol`, and `find_referencing_symbols`
+  instead of reading whole files. Read a symbol body only when you actually need it.
+- **Edit** with `replace_symbol_body`, `insert_after_symbol`, `insert_before_symbol`,
+  and `rename_symbol` for symbol-level changes; use `replace_regex` / the text tools
+  only for non-symbol edits.
+- Plain `Edit` / `grep` is acceptable for config, Markdown, shell, and `.env` files
+  (e.g. `bin/civicctl.sh`, docs) where there are no code symbols to target.
+
+If Serena isn't initialized yet in a session, run its onboarding/initial-instructions
+first, then proceed with the symbolic tools.
+
+---
+
 ## Quick commands
 
 ```bash
@@ -19,7 +38,7 @@ pnpm lint         # ESLint
 
 ### Service manager — `bin/civicctl.sh`
 
-Runs **both** the frontend (Vite :5173) and the Interview backend (uvicorn :8088)
+Runs **both** the frontend (Vite :5173) and the Interview backend (uvicorn :8090)
 in the background with PID tracking, health checks, and logs. Use this instead of
 `pnpm dev` when you need Interview mode (`?format=interview`) to work — `pnpm dev`
 alone starts only the frontend, so the interview API calls fail.
@@ -33,12 +52,13 @@ bash bin/civicctl.sh logs       # live colour-coded tail ([BE]/[FE]); also: logs
 bash bin/civicctl.sh repair     # reinstall pnpm deps + verify/create server venv
 ```
 
-Options (for `start`/`restart`/`status`): `--port` (backend, default 8088),
+Options (for `start`/`restart`/`status`): `--port` (backend, default 8090;
+override repo-wide via the `CIVIC_BACKEND_PORT` env var or `server/.env`),
 `--ui-port` (frontend, default 5173), `--no-reload`.
 
 - Backend python: `server/.venv/bin/python` (override with `CIVIC_PY`).
 - Logs / PIDs: `logs/backend.{log,pid}`, `logs/frontend.{log,pid}` (gitignored).
-- Frontend → backend URL is `VITE_INTERVIEW_API_URL` (defaults to `http://localhost:8088`).
+- Frontend → backend URL is `VITE_INTERVIEW_API_URL` (defaults to `http://localhost:8090`).
 
 > If `http://localhost:5173/...` won't load, the Vite dev server is down — run
 > `bash bin/civicctl.sh status` to see which side stopped, then `restart`.

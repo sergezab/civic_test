@@ -1,0 +1,9 @@
+[mcp_servers.serena]
+args = [
+    "start-mcp-server",
+    "--context",
+    "ide-assistant",
+    "--project",
+    "/Users/astra/dev/startup/civic_test",
+]
+command = "serena"

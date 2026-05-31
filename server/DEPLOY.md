@@ -25,11 +25,26 @@ often faster). Both are long-running local services that auto-start at login:
 | Backend | Port | Auto-start mechanism | Notes |
 |---------|------|----------------------|-------|
 | Ollama | 11434 | Homebrew LaunchAgent (`brew services`) | Default grader (`GRADER_PROVIDER=ollama`). |
-| MLX server | 8088 | LaunchAgent `~/Library/LaunchAgents/com.astra.mlx-vlm.plist` | Shared with `_LLM_ROUTER`. Optional — for faster grading once wired in. |
+| MLX server | 8088 | LaunchAgent `~/Library/LaunchAgents/com.astra.mlx-vlm.plist` | Shared with `_LLM_ROUTER`. Select with `GRADER_PROVIDER=mlx` (see below). |
 
-> ⚠️ **Port note:** the MLX agent owns **8088**, which is also this backend's default
-> port. If you run MLX, start the civic_test API on another port:
-> `bash bin/civicctl.sh start --port 8090`.
+To grade on MLX instead of Ollama, set in `server/.env`:
+
+```bash
+GRADER_PROVIDER=mlx
+MLX_BASE_URL=http://localhost:8088   # base URL or /v1 URL both work
+GRADER_MODEL=<model id the MLX server serves>   # GET {MLX_BASE_URL}/v1/models
+# MLX_API_KEY=...   # optional — only if the server is secured behind a tunnel
+```
+
+The grader calls the MLX server's OpenAI-compatible `/v1/chat/completions`
+directly (the shared `llm_core` has no MLX provider, so — like Ollama — civic_test
+talks to it directly). If MLX is unreachable or returns junk, grading falls back
+to deterministic string matching, same as every other provider.
+
+> **Backend port:** civic_test defaults to **8090**. Start with
+> `bash bin/civicctl.sh start`, override per-run with
+> `bash bin/civicctl.sh start --port <PORT>`, or change the repo-wide default
+> with `CIVIC_BACKEND_PORT` in `server/.env`.
 
 ### New-machine setup
 

@@ -43,9 +43,9 @@ DISPATCH_SCRIPT="$REPO_ROOT/bin/dev-https-dispatcher.mjs"
 SERVER_DIR="$REPO_ROOT/server"
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
-# Backend port. Defaults to 8090 (8088 is taken by mlx_vlm.server on some hosts).
+# Backend port. Defaults to 8090.
 # Precedence: --port flag > CIVIC_BACKEND_PORT env > server/.env > 8090 default.
-# server/.env is the repo's single source of truth so every machine agrees.
+# server/.env can set the repo-wide default for civicctl runs.
 if [ -z "${CIVIC_BACKEND_PORT:-}" ] && [ -f "$SERVER_DIR/.env" ]; then
     _env_port=$(grep -E '^[[:space:]]*CIVIC_BACKEND_PORT=' "$SERVER_DIR/.env" 2>/dev/null \
         | tail -n1 | cut -d= -f2 | tr -d '[:space:]')
@@ -198,18 +198,20 @@ cmd_start() {
         fi
         local scheme="http"
         [[ "$UI_HTTPS" == "1" ]] && scheme="https"
-        info "Starting frontend (Vite on ${VITE_BIND_HOST}:${VITE_BIND_PORT}, scheme=${scheme})…"
+        local API_PROXY_TARGET="http://localhost:${PORT}"
+        info "Starting frontend (Vite on ${VITE_BIND_HOST}:${VITE_BIND_PORT}, scheme=${scheme}, API proxy=${API_PROXY_TARGET})…"
         {
             echo ""
             echo "════════════════════════════════════════"
             echo "  SESSION STARTED: $(date '+%Y-%m-%d %H:%M:%S')"
             echo "  Bind:   ${VITE_BIND_HOST}:${VITE_BIND_PORT}  Scheme: ${scheme}"
+            echo "  API:    ${API_PROXY_TARGET}"
             echo "════════════════════════════════════════"
         } >> "$FRONTEND_LOG"
         (
             cd "$REPO_ROOT" || exit 1
             # HTTPS=1 makes vite.config.ts enable the basicSsl plugin (self-signed cert).
-            HTTPS="$UI_HTTPS" nohup pnpm exec vite --host "$VITE_BIND_HOST" --port "$VITE_BIND_PORT" --strictPort \
+            API_PROXY="$API_PROXY_TARGET" HTTPS="$UI_HTTPS" nohup pnpm exec vite --host "$VITE_BIND_HOST" --port "$VITE_BIND_PORT" --strictPort \
                 >> "$FRONTEND_LOG" 2>&1 &
             echo $! > "$FRONTEND_PID_FILE"
         )

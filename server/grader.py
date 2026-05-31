@@ -105,6 +105,47 @@ def _ollama_chat(messages: list[dict[str, str]], session: requests.Session | Non
     return r.json().get("message", {}).get("content", "")
 
 
+def _mlx_base_url() -> str:
+    """Normalize MLX_BASE_URL so a base URL or a /v1 URL both work."""
+    base = (config.MLX_BASE_URL or "http://localhost:8088").strip().rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3].rstrip("/")
+    return base
+
+
+def _mlx_chat(
+    messages: list[dict[str, str]], session: requests.Session | None = None
+) -> str:
+    """Call a local MLX server's OpenAI-compatible /v1/chat/completions.
+
+    The MLX provider lives in _LLM_ROUTER's local lib/llm_providers, not in the
+    shared llm_core — so, like Ollama, civic_test talks to it directly. Text
+    only: no image parts, no streaming. _extract_json strips any reasoning
+    preamble the model returns."""
+    client = session or requests
+    payload = {
+        "model": config.GRADER_MODEL,
+        "messages": messages,
+        "max_tokens": config.GRADE_MAX_TOKENS,
+        "temperature": config.GRADE_TEMPERATURE,
+        "stream": False,
+    }
+    headers = {"Content-Type": "application/json"}
+    if config.MLX_API_KEY:
+        headers["Authorization"] = f"Bearer {config.MLX_API_KEY}"
+    r = client.post(
+        f"{_mlx_base_url()}/v1/chat/completions",
+        json=payload,
+        headers=headers,
+        timeout=config.GRADE_TIMEOUT,
+    )
+    r.raise_for_status()
+    choices = r.json().get("choices") or []
+    if not choices:
+        return ""
+    return choices[0].get("message", {}).get("content", "") or ""
+
+
 def _llm_core_chat(question: str, accepted: list[str], transcript: str) -> str:
     """Cloud / non-Ollama providers via the shared library."""
     from llm_core.providers import get_provider
@@ -286,8 +327,9 @@ class Grader:
         t0 = time.perf_counter()
         try:
             with self._semaphore:
-                if config.GRADER_PROVIDER == "ollama":
-                    raw = _ollama_chat(
+                if config.GRADER_PROVIDER in ("ollama", "mlx"):
+                    chat = _ollama_chat if config.GRADER_PROVIDER == "ollama" else _mlx_chat
+                    raw = chat(
                         [
                             {"role": "system", "content": SYSTEM_PROMPT},
                             {

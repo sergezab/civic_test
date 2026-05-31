@@ -42,7 +42,7 @@ npm run gen:audio    # regenerate public/audio via Piper (needs server venv)
 ```bash
 cd server
 uv venv && uv pip install -r requirements.txt && uv pip install -e ../../llm_core
-uv run uvicorn app:app --port 8088        # config auto-loaded from server/.env
+uv run uvicorn app:app --port 8090        # config auto-loaded from server/.env
 ```
 
 ## Conventions
