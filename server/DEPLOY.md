@@ -17,6 +17,61 @@ visitor browser ──HTTPS──> Cloudflare Tunnel ──> localhost:8088 (Fas
 > testing without a tunnel, run the frontend with `npm run dev:https` and accept the
 > self-signed cert once.
 
+## Model backends & auto-start (Ollama + MLX)
+
+The grader can run on **Ollama** (default) or a local **MLX** server (Apple-Silicon,
+often faster). Both are long-running local services that auto-start at login:
+
+| Backend | Port | Auto-start mechanism | Notes |
+|---------|------|----------------------|-------|
+| Ollama | 11434 | Homebrew LaunchAgent (`brew services`) | Default grader (`GRADER_PROVIDER=ollama`). |
+| MLX server | 8088 | LaunchAgent `~/Library/LaunchAgents/com.astra.mlx-vlm.plist` | Shared with `_LLM_ROUTER`. Optional — for faster grading once wired in. |
+
+> ⚠️ **Port note:** the MLX agent owns **8088**, which is also this backend's default
+> port. If you run MLX, start the civic_test API on another port:
+> `bash bin/civicctl.sh start --port 8090`.
+
+### New-machine setup
+
+```bash
+# Ollama (default grader)
+brew install ollama
+brew services start ollama
+ollama pull "$GRADER_MODEL"        # see server/.env (default qwen3.5:9b)
+
+# MLX server (optional, faster grading)
+python3 -m venv ~/mlx-env
+~/mlx-env/bin/pip install mlx-lm mlx-vlm mlx-audio fastapi "uvicorn[standard]"
+launchctl load -w ~/Library/LaunchAgents/com.astra.mlx-vlm.plist  # enable + start now and at every login
+```
+
+MLX loads the model into VRAM on the **first** request, so that grade can take
+~20–30 s; subsequent grades are fast.
+
+### Manage / troubleshoot
+
+```bash
+# Ollama
+brew services list                 # is ollama running?
+brew services restart ollama
+
+# MLX server
+launchctl list | grep mlx-vlm      # running? (PID + last exit code)
+launchctl unload -w ~/Library/LaunchAgents/com.astra.mlx-vlm.plist  # stop + disable
+launchctl load   -w ~/Library/LaunchAgents/com.astra.mlx-vlm.plist  # (re)enable + start
+tail -f ~/Library/Logs/mlx-vlm.err.log   # startup / crash logs
+```
+
+**Common issues**
+
+- **8088 already in use** — find the holder with
+  `lsof -nP -iTCP:8088 -sTCP:LISTEN`; run the civic_test API on `--port 8090`.
+- **Slow first grade (~20–30 s)** — model loading into VRAM. For Ollama set
+  `OLLAMA_KEEP_ALIVE=2h` to keep it warm; watch the `[civic] grade llm=…ms` log.
+- **MLX agent has a non-zero exit code** in `launchctl list` — usually a missing
+  `~/mlx-env` venv or `mlx_vlm` not installed; read `~/Library/Logs/mlx-vlm.err.log`.
+  After editing the plist, run `launchctl unload` then `load` to apply changes.
+
 ## 1. Run the API on your Mac
 
 ```bash
