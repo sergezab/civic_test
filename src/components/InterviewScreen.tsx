@@ -69,9 +69,27 @@ export function InterviewScreen({
   const [netError, setNetError] = useState<string | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [done, setDone] = useState(false);
+  const [deck, setDeck] = useState<Question[]>(questions);
   const fbAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const q = questions[index];
+  const q = deck[index];
+
+  const resetTo = (qs: Question[]) => {
+    setDeck(qs);
+    setIndex(0);
+    setLog([]);
+    setDone(false);
+    setResult(null);
+    setAnswer("");
+    setNetError(null);
+    setStage(rec.supported ? "ready" : "edit");
+  };
+
+  // A fresh session was dealt (e.g. "New interview") → reset to its first question.
+  useEffect(() => {
+    resetTo(questions);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [questions]);
 
   // Check the grader is reachable.
   useEffect(() => {
@@ -193,9 +211,9 @@ export function InterviewScreen({
 
     const correct = newLog.filter((e) => e.verdict === "correct").length;
     const wrong = newLog.length - correct;
-    const reachedEnd = index + 1 >= questions.length;
+    const reachedEnd = index + 1 >= deck.length;
     const decided =
-      mode === "test" && (correct >= PASS_MARK || wrong > questions.length - PASS_MARK);
+      mode === "test" && (correct >= PASS_MARK || wrong > deck.length - PASS_MARK);
 
     setResult(null);
     setAnswer("");
@@ -234,6 +252,9 @@ export function InterviewScreen({
   if (done) {
     const correct = log.filter((e) => e.verdict === "correct").length;
     const passed = correct >= PASS_MARK;
+    const missed = deck.filter((dq) =>
+      log.some((e) => e.id === dq.id && e.verdict !== "correct"),
+    );
     return (
       <div className="screen results-screen">
         <p className="eyebrow">Interview complete</p>
@@ -270,7 +291,15 @@ export function InterviewScreen({
         </div>
 
         <div className="start-actions">
-          <button className="btn btn-primary" onClick={onRestart}>
+          {missed.length > 0 && (
+            <button className="btn btn-primary" onClick={() => resetTo(missed)}>
+              Drill {missed.length} missed
+            </button>
+          )}
+          <button
+            className={`btn ${missed.length > 0 ? "btn-ghost" : "btn-primary"}`}
+            onClick={onRestart}
+          >
             New interview
           </button>
           <button className="btn btn-ghost" onClick={onHome}>
@@ -320,6 +349,10 @@ export function InterviewScreen({
         {stage === "ready" && (
           <div className="interview-prompt">
             <p>When you’re ready, answer the officer out loud.</p>
+            <p className="privacy-note">
+              🔒 Your answer is transcribed and graded to give feedback — audio
+              isn’t stored.
+            </p>
           </div>
         )}
 
@@ -439,7 +472,7 @@ export function InterviewScreen({
               className={`btn btn-wide ${result?.verdict === "correct" ? "btn-correct" : "btn-primary"}`}
               onClick={next}
             >
-              {index + 1 >= questions.length ? "Finish interview" : "Next question"}
+              {index + 1 >= deck.length ? "Finish interview" : "Next question"}
             </button>
             <button className="btn btn-ghost" onClick={tryAgain}>
               Try again
@@ -450,8 +483,7 @@ export function InterviewScreen({
 
       <div className="interview-status">
         <span className="progress-label">
-          Question {index + 1}
-          {mode === "test" ? " of 10" : ` of ${questions.length}`}
+          Question {index + 1} of {deck.length}
         </span>
         <span className="interview-score">✓ {correctSoFar} correct</span>
       </div>

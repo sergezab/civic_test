@@ -604,6 +604,11 @@ button.choice:hover {
   color: var(--navy-600);
   font-weight: 600;
 }
+.privacy-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
 
 .live-transcript {
   background: #fff;
