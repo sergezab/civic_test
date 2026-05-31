@@ -25,13 +25,6 @@ export function FlashScreen({
   const [flipped, setFlipped] = useState(false);
   const [done, setDone] = useState(false);
 
-  // Reset when a fresh set is dealt (e.g. "study again" re-shuffles `cards`).
-  useEffect(() => {
-    setIndex(0);
-    setFlipped(false);
-    setDone(false);
-  }, [cards]);
-
   const card = cards[index];
 
   // Read each new card aloud.

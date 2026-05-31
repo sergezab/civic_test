@@ -18,6 +18,5 @@ export function ilog(scope: string, msg: string, data?: Record<string, unknown>)
         .map(([k, v]) => `${k}=${v}`)
         .join(" ")
     : "";
-  // eslint-disable-next-line no-console
   console.info(`[${t}s] [${scope}] ${msg}${extra}`);
 }

@@ -44,8 +44,8 @@ export interface UseSpeechRecognition {
 
 /** Wrapper around the browser's SpeechRecognition (Chrome/Edge, partial Safari). */
 export function useSpeechRecognition(lang = "en-US"): UseSpeechRecognition {
-  const ctorRef = useRef<SRCtor | null>(getCtor());
-  const supported = ctorRef.current !== null;
+  const [Ctor] = useState<SRCtor | null>(() => getCtor());
+  const supported = Ctor !== null;
 
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const finalRef = useRef("");
@@ -60,7 +60,6 @@ export function useSpeechRecognition(lang = "en-US"): UseSpeechRecognition {
   }, []);
 
   const start = useCallback(() => {
-    const Ctor = ctorRef.current;
     if (!Ctor) return;
     finalRef.current = "";
     setTranscript("");
@@ -105,7 +104,7 @@ export function useSpeechRecognition(lang = "en-US"): UseSpeechRecognition {
     } catch (e) {
       ilog("stt", "start failed", { error: String(e) });
     }
-  }, [lang]);
+  }, [Ctor, lang]);
 
   const stop = useCallback(() => {
     try {

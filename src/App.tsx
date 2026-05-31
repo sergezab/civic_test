@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { questions } from "./data/questions";
 import type { Question } from "./data/questions";
 import { useSpeech } from "./hooks/useSpeech";
@@ -26,6 +26,10 @@ export default function App() {
   const [session, setSession] = useState<Question[]>([]);
   const [index, setIndex] = useState(0);
   const [results, setResults] = useState<(boolean | null)[]>([]);
+  const didAutoStartRef = useRef(false);
+  const startQuizRef = useRef<
+    ((cfg: QuizConfig, startId?: number) => void) | null
+  >(null);
 
   const startQuiz = useCallback(
     (cfg: QuizConfig, startId?: number) => {
@@ -64,17 +68,23 @@ export default function App() {
     },
     [bookmarks],
   );
+  useEffect(() => {
+    startQuizRef.current = startQuiz;
+  }, [startQuiz]);
 
   // Auto-start from URL on first load (bookmarks are read synchronously from
   // localStorage so they're correct on the first render that startQuiz closes over).
   useEffect(() => {
+    if (didAutoStartRef.current) return;
     const { format, mode, pool, count, q } = readUrlParams();
     if (format && mode && pool) {
       const cfg = { format, mode, pool, count: count ?? undefined } as QuizConfig;
-      startQuiz(cfg, q ?? undefined);
+      const timer = window.setTimeout(() => {
+        didAutoStartRef.current = true;
+        startQuizRef.current?.(cfg, q ?? undefined);
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
-    // intentionally run once on mount only
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Keep the q param in sync as the user moves through quiz questions.
@@ -115,6 +125,10 @@ export default function App() {
 
   const score = results.filter((r) => r === true).length;
   const current = session[index];
+  const sessionKey = useMemo(
+    () => session.map((q) => q.id).join("-"),
+    [session],
+  );
 
   return (
     <div className="app">
@@ -138,6 +152,7 @@ export default function App() {
           session.length > 0 &&
           (config?.format === "flash" ? (
             <FlashScreen
+              key={sessionKey}
               cards={session}
               speech={speech}
               isBookmarked={isBookmarked}
@@ -147,6 +162,7 @@ export default function App() {
             />
           ) : config?.format === "interview" ? (
             <InterviewScreen
+              key={sessionKey}
               questions={session}
               mode={config.mode}
               speech={speech}

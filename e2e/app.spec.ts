@@ -60,13 +60,14 @@ test.describe('Flash card mode', () => {
     await page.goto('/')
     await page.getByRole('button', { name: 'Flash cards' }).click()
     await page.getByRole('button', { name: 'Study 10 cards' }).click()
-    await expect(page.locator('.flash-nav')).toBeVisible()
+    await expect(page.getByText('Card 1 of 10')).toBeVisible()
     await expect(page).toHaveURL(/format=flash&mode=test&pool=all&count=10&q=\d+&stage=front/)
   })
 
   test('bookmark button works in flash mode', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/', { waitUntil: 'commit' })
     await page.evaluate(() => localStorage.removeItem('civic_bookmarks'))
+    await page.reload()
     await page.getByRole('button', { name: 'Flash cards' }).click()
     await page.getByRole('button', { name: 'Study 10 cards' }).click()
 

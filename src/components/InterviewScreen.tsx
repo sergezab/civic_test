@@ -181,14 +181,6 @@ export function InterviewScreen({
     lastReadRef.current = null;
   };
 
-  // Fresh session dealt (New interview) → reset.
-  useEffect(() => {
-    resetTo(questions);
-    setAutoStarted(false);
-    setPaused(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [questions]);
-
   // Grader reachability.
   useEffect(() => {
     const ctrl = new AbortController();
@@ -258,7 +250,6 @@ export function InterviewScreen({
     if (auto && !(autoStarted && !paused)) return; // wait for Start / resume
     lastReadRef.current = q.id;
     ilog("iv", "read question", { q: q.id, mode: auto ? "auto" : "manual" });
-    setStage("ready");
     if (auto) {
       speech.play(q.id, q.question, beginListening);
     } else {
@@ -320,6 +311,7 @@ export function InterviewScreen({
         return;
       }
       ilog("iv", "advance", { to: indexRef.current + 2, outcome });
+      setStage("ready");
       setIndex(indexRef.current + 1);
     },
     [mode, rec, speech, stopFeedbackAudio],
@@ -412,6 +404,7 @@ export function InterviewScreen({
     setNetError(null);
     rec.reset();
     setAnswer("");
+    setRemaining(answerSecs);
     rec.start();
     setStage("listening");
   };
@@ -423,6 +416,7 @@ export function InterviewScreen({
   const startAudioRecording = async () => {
     setNetError(null);
     setAnswer("");
+    setRemaining(answerSecs);
     const ok = await recorder.start();
     if (ok) setStage("rec-audio");
     else setNetError("Couldn't access the microphone — type your answer instead.");
@@ -446,7 +440,6 @@ export function InterviewScreen({
   useEffect(() => {
     const counting = (!auto && stage === "listening") || stage === "rec-audio";
     if (!counting) return;
-    setRemaining(answerSecs);
     const deadline = Date.now() + answerSecs * 1000;
     const id = window.setInterval(() => {
       const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
@@ -641,7 +634,11 @@ export function InterviewScreen({
           ⏱
           <select
             value={answerSecs}
-            onChange={(e) => setAnswerSecs(Number(e.target.value))}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              setAnswerSecs(next);
+              setRemaining(next);
+            }}
           >
             {ANSWER_TIME_OPTIONS.map((s) => (
               <option key={s} value={s}>
