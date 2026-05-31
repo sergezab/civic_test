@@ -34,8 +34,11 @@ PY="${CIVIC_PY:-${REPO_ROOT}/server/.venv/bin/python}"
 LOG_DIR="$REPO_ROOT/logs"
 BACKEND_LOG="$LOG_DIR/backend.log"
 FRONTEND_LOG="$LOG_DIR/frontend.log"
+DISPATCH_LOG="$LOG_DIR/frontend-dispatch.log"
 BACKEND_PID_FILE="$LOG_DIR/backend.pid"
 FRONTEND_PID_FILE="$LOG_DIR/frontend.pid"
+DISPATCH_PID_FILE="$LOG_DIR/frontend-dispatch.pid"
+DISPATCH_SCRIPT="$REPO_ROOT/bin/dev-https-dispatcher.mjs"
 
 SERVER_DIR="$REPO_ROOT/server"
 
@@ -129,11 +132,23 @@ cmd_start() {
     echo -e "${BOLD}╚═══════════════════════════════════════╝${NC}"
     echo ""
 
+    # In --https mode Vite binds an internal loopback port; a small TCP
+    # dispatcher fronts UI_PORT, forwarding TLS bytes and replying 301 to
+    # plain-HTTP so http://host:PORT/ doesn't ERR_EMPTY_RESPONSE.
+    local UI_INTERNAL_PORT=$((UI_PORT + 100))
+    local VITE_BIND_HOST="$UI_HOST"
+    local VITE_BIND_PORT="$UI_PORT"
+    if [[ "$UI_HTTPS" == "1" ]]; then
+        VITE_BIND_HOST="127.0.0.1"
+        VITE_BIND_PORT="$UI_INTERNAL_PORT"
+    fi
+
     # Sweep any orphan listeners (children of a previous run that outlived their
     # PID file) so the new processes can bind cleanly instead of falling back to
     # localhost-only or failing with "Address already in use".
     is_running "$BACKEND_PID_FILE"  || free_port "$PORT"    "backend"
-    is_running "$FRONTEND_PID_FILE" || free_port "$UI_PORT" "frontend"
+    is_running "$DISPATCH_PID_FILE" || free_port "$UI_PORT" "dispatcher"
+    is_running "$FRONTEND_PID_FILE" || free_port "$VITE_BIND_PORT" "frontend"
 
     # ── Backend (uvicorn) ────────────────────────────────────────────────────
     if is_running "$BACKEND_PID_FILE"; then
@@ -175,22 +190,45 @@ cmd_start() {
         fi
         local scheme="http"
         [[ "$UI_HTTPS" == "1" ]] && scheme="https"
-        info "Starting frontend (Vite on :${UI_PORT}, scheme=${scheme})…"
+        info "Starting frontend (Vite on ${VITE_BIND_HOST}:${VITE_BIND_PORT}, scheme=${scheme})…"
         {
             echo ""
             echo "════════════════════════════════════════"
             echo "  SESSION STARTED: $(date '+%Y-%m-%d %H:%M:%S')"
-            echo "  Scheme: ${scheme}"
+            echo "  Bind:   ${VITE_BIND_HOST}:${VITE_BIND_PORT}  Scheme: ${scheme}"
             echo "════════════════════════════════════════"
         } >> "$FRONTEND_LOG"
         (
             cd "$REPO_ROOT" || exit 1
             # HTTPS=1 makes vite.config.ts enable the basicSsl plugin (self-signed cert).
-            HTTPS="$UI_HTTPS" nohup pnpm exec vite --host "$UI_HOST" --port "$UI_PORT" --strictPort \
+            HTTPS="$UI_HTTPS" nohup pnpm exec vite --host "$VITE_BIND_HOST" --port "$VITE_BIND_PORT" --strictPort \
                 >> "$FRONTEND_LOG" 2>&1 &
             echo $! > "$FRONTEND_PID_FILE"
         )
         ok "Frontend started →  PID $(cat "$FRONTEND_PID_FILE")  log: logs/frontend.log"
+    fi
+
+    # ── HTTPS dispatcher (only when --https) ─────────────────────────────────
+    if [[ "$UI_HTTPS" == "1" ]]; then
+        if is_running "$DISPATCH_PID_FILE"; then
+            warn "Dispatcher already running (PID $(cat "$DISPATCH_PID_FILE"))"
+        else
+            info "Starting HTTPS dispatcher (:${UI_PORT} → 127.0.0.1:${UI_INTERNAL_PORT}, HTTP→301)…"
+            {
+                echo ""
+                echo "════════════════════════════════════════"
+                echo "  SESSION STARTED: $(date '+%Y-%m-%d %H:%M:%S')"
+                echo "  Public: ${UI_HOST}:${UI_PORT}  →  127.0.0.1:${UI_INTERNAL_PORT}"
+                echo "════════════════════════════════════════"
+            } >> "$DISPATCH_LOG"
+            (
+                cd "$REPO_ROOT" || exit 1
+                PUBLIC_PORT="$UI_PORT" UPSTREAM_PORT="$UI_INTERNAL_PORT" BIND_HOST="$UI_HOST" \
+                    nohup node "$DISPATCH_SCRIPT" >> "$DISPATCH_LOG" 2>&1 &
+                echo $! > "$DISPATCH_PID_FILE"
+            )
+            ok "Dispatcher started → PID $(cat "$DISPATCH_PID_FILE")  log: logs/frontend-dispatch.log"
+        fi
     fi
 
     # ── Health probe ─────────────────────────────────────────────────────────
@@ -210,6 +248,7 @@ cmd_start() {
            || warn "Frontend not responding yet — check: bash bin/civicctl.sh logs frontend"
     if [[ "$UI_HTTPS" == "1" ]]; then
         echo -e "${DIM}  LAN: ${fe_scheme}://$(hostname -s).lan:${UI_PORT}  (self-signed cert — accept the browser warning)${NC}"
+        echo -e "${DIM}       http:// on the same port → 301 redirect to https://${NC}"
     fi
     echo ""
 }
@@ -219,8 +258,10 @@ cmd_stop() {
     info "Stopping Civic Test services…"
     kill_service "Backend"  "$BACKEND_PID_FILE"
     free_port "$PORT" "backend"
-    kill_service "Frontend" "$FRONTEND_PID_FILE"
+    kill_service "Dispatcher" "$DISPATCH_PID_FILE"
+    kill_service "Frontend"   "$FRONTEND_PID_FILE"
     free_port "$UI_PORT" "frontend"
+    free_port $((UI_PORT + 100)) "frontend(internal)"
     echo ""
 }
 
