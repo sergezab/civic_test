@@ -166,7 +166,7 @@ export function FlashScreen({
 
           {!flipped && (
             <button className="btn btn-ghost flash-side-btn" onClick={goNext}>
-              {isLast ? "Skip & finish" : "Skip →"}
+              {isLast ? "Finish →" : "Next →"}
             </button>
           )}
         </div>
