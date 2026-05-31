@@ -20,6 +20,10 @@ type SRCtor = new () => SpeechRecognitionLike;
 
 function getCtor(): SRCtor | null {
   if (typeof window === "undefined") return null;
+  // Speech recognition / mic are blocked on insecure origins (plain http on a
+  // non-localhost host). The constructor may still exist but start() yields no
+  // audio, so treat insecure contexts as unsupported.
+  if (!window.isSecureContext) return null;
   const w = window as unknown as {
     SpeechRecognition?: SRCtor;
     webkitSpeechRecognition?: SRCtor;

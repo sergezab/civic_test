@@ -70,6 +70,9 @@ export function InterviewScreen({
   const recorder = useRecorder();
   const canRecord = !rec.supported && recorder.supported;
   const autoAvailable = rec.supported; // hands-free needs Web Speech transcripts
+  // Mic + speech recognition only work on a secure origin (https or localhost).
+  const insecureVoice =
+    typeof window !== "undefined" && !window.isSecureContext;
 
   const [ivMode, setIvMode] = useState<IvMode>(() => {
     try {
@@ -567,6 +570,14 @@ export function InterviewScreen({
           ↻ Retry wrong answers
         </label>
       </div>
+
+      {insecureVoice && (
+        <p className="insecure-note">
+          🎤 The microphone is blocked on this address. Speech needs a secure
+          connection — open <code>http://localhost:5173</code> on this machine, or
+          serve over HTTPS (<code>npm run dev:https</code>). You can type answers below.
+        </p>
+      )}
 
       <div className="question-bar">
         <div className="question-meta">

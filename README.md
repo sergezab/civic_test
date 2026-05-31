@@ -17,7 +17,7 @@ governor, capital) filled in from `uscis.gov/citizenship/testupdates`.
 |------|--------------|
 | **Quiz** | Hear the question, pick **A–D**, get instant feedback and the official accepted answers. Mirrors the Smithsonian "Preparing for the Oath" flow. |
 | **Flash cards** | Hear the question, recall the answer out loud, then **flip** the card to check it. No scoring — pure review, with Prev/Next navigation. |
-| **Interview** | **Speak** your answer; an LLM grades it like a real officer (accepting paraphrases), tells you the verdict, and **speaks** feedback back. Real-exam scoring: 6 of 10 to pass, with early stop. The closest practice to the actual oral test. |
+| **Interview** | **Speak** your answer; an LLM grades it like a real officer (accepting paraphrases), tells you the verdict, and **speaks** feedback. Run it **Hands-free** (auto-listens, grades, and advances by itself) or **Manual** (tap to record/stop), with an optional **Retry wrong answers** mode. Real-exam scoring: 6 of 10 to pass. The closest practice to the actual oral test. |
 
 ### Shared features
 - **Read-aloud audio** for every question (pre-generated, reliable — see below).
@@ -70,11 +70,16 @@ civic_test/
 │   │   ├── useRecorder.ts         # MediaRecorder → server STT fallback
 │   │   └── useBookmarks.ts        # saved questions (localStorage)
 │   ├── api/interview.ts          # client for /grade, /tts, /stt
-│   └── utils/ quiz.ts · url.ts
-├── public/audio/                 # q-1.m4a … q-100.m4a (macOS `say` voice)
-├── scripts/generate-audio.mjs    # regenerates the question audio
-├── server/                       # Interview backend (FastAPI) — see server/README.md
-└── server/DEPLOY.md              # public deployment runbook (Cloudflare Tunnel)
+│   └── utils/ quiz.ts · url.ts · log.ts   # log.ts = timing/diagnostic logs
+├── public/audio/                 # q-1.m4a … q-100.m4a (Piper voice)
+├── scripts/generate-audio.mjs    # regenerates the question audio (Piper)
+├── server/                       # Interview backend (FastAPI)
+│   ├── app.py · grader.py · tts.py · stt.py · config.py · logutil.py
+│   ├── voices/                    # Piper .onnx voice model
+│   ├── README.md                  # backend setup
+│   └── DEPLOY.md                  # public deployment runbook (Cloudflare Tunnel)
+├── vite.config.ts                # dev server: LAN host, API proxy, opt-in HTTPS
+└── .env.example                  # frontend VITE_INTERVIEW_API_URL (optional)
 ```
 
 ---
@@ -95,24 +100,28 @@ uv pip install -r requirements.txt
 uv pip install -e ../../llm_core     # shared LLM library
 uv run uvicorn app:app --port 8088
 ```
-Requirements: **Ollama** running with the grader model pulled (`qwen3.5:9b` by
-default). Piper TTS and faster-whisper STT install via `requirements.txt`; the
-Piper voice lives in `server/voices/`.
+Requirements: **Ollama** reachable with a grader model pulled. Configure the
+backend in `server/.env` (copy from `.env.example`) — e.g. point `OLLAMA_HOST` at
+a local or LAN Ollama and set `GRADER_MODEL`. Piper TTS and faster-whisper STT
+install via `requirements.txt`; the Piper voice lives in `server/voices/`.
 
-The frontend finds the backend at `VITE_INTERVIEW_API_URL` (defaults to
-`http://localhost:8088`). See `.env.example`.
+The frontend reaches the backend through the Vite **dev proxy** by default (same
+origin), so no `VITE_INTERVIEW_API_URL` is needed locally. For **voice over the
+network**, run `npm run dev:https` and open `https://<host>:5173` — voice needs a
+secure origin (see [Browser support](#browser-support)).
 
 ---
 
 ## How each piece works
 
 ### Question audio (read-aloud)
-Question audio is **pre-generated** into `public/audio/q-<id>.m4a` using the macOS
-`say` voice, then played as static files. This is deliberate — the browser's live
-Web Speech synthesis proved unreliable, whereas static audio plays consistently
-everywhere. Regenerate after editing questions:
+Question audio is **pre-generated** into `public/audio/q-<id>.m4a` with **Piper**
+(the same natural voice the officer uses for feedback), then played as static
+files. This is deliberate — the browser's live Web Speech synthesis proved
+unreliable, whereas static audio plays consistently everywhere. Regenerate after
+editing questions:
 ```bash
-npm run gen:audio          # node scripts/generate-audio.mjs  (macOS: say + afconvert)
+npm run gen:audio          # Piper via the server venv → afconvert → m4a (falls back to macOS `say`)
 ```
 
 ### The questions data (`src/data/questions.ts`)
@@ -131,6 +140,20 @@ feedback, and the best answer to say. It accepts **paraphrases and synonyms** li
 a real officer. If the LLM is down or replies with junk, a deterministic
 string-match grader takes over so you always get a verdict.
 
+### Interview mode — Manual, Hands-free & Retry
+- **Manual:** tap **🎤 Answer out loud**, speak, tap **■ Stop & submit** (one tap
+  to send — no separate review step), then **Next**.
+- **Hands-free:** reads the question, **auto-listens**, detects when you stop
+  talking (~2.2 s of silence), grades, **speaks the feedback**, and **advances by
+  itself** — a self-running mock interview, with **Pause/Resume** anytime. (Needs
+  Chrome/Edge speech recognition.)
+- **Retry wrong answers** (checkbox): on a miss, after the officer explains the
+  answer you get **one more try**. Each question is tracked as **✓ correct** (first
+  try), **↻ review** (correct only on retry), or **✕ missed**. The end screen shows
+  a transcript with these markers and a **"Practice N you missed"** drill that
+  re-runs everything you didn't get on the first try. The pass score counts
+  first-try-correct only.
+
 ### Speech in / out
 - **Speech-to-text:** Web Speech API in Chrome/Edge; **MediaRecorder → `/stt`
   (faster-whisper)** fallback for Safari/Firefox; typed input always available.
@@ -143,7 +166,8 @@ string-match grader takes over so you always get a verdict.
 
 ## Backend API
 
-Base URL = `VITE_INTERVIEW_API_URL`.
+Reached at a **relative path by default** (via the Vite dev proxy / a production
+reverse proxy); set `VITE_INTERVIEW_API_URL` to call the backend directly instead.
 
 | Method · Path | Body | Returns |
 |---|---|---|
@@ -163,8 +187,14 @@ Base URL = `VITE_INTERVIEW_API_URL`.
 | `TTS_ENGINE` / `PIPER_VOICE` | `piper` / bundled | feedback voice |
 | `WHISPER_MODEL` / `_DEVICE` / `_COMPUTE` | `base.en` / `cpu` / `int8` | STT model |
 
-> Tip: for faster grading, point `GRADER_MODEL` at a small non-reasoning model
-> (e.g. `llama3.2:3b`) — grading civics answers doesn't need a large model.
+`server/.env` overrides these (e.g. point `OLLAMA_HOST`/`GRADER_MODEL` at a LAN
+machine such as a Mac Studio). For thinking models like qwen3, the backend sends
+`think:false` so the model answers immediately instead of burning the token budget.
+
+> **Faster grading:** use a small non-reasoning model (e.g. `llama3.2:3b`) — civics
+> grading doesn't need a large model. If the first grade after idle stalls ~20–30 s,
+> the model was **cold-loaded** into VRAM; keep it resident with
+> `OLLAMA_KEEP_ALIVE=2h` on the Ollama host.
 
 ---
 
@@ -183,6 +213,32 @@ degradation when the backend or TTS/STT is unavailable.
 - **Interview speech-in:** best in **Chrome/Edge** (Web Speech API). Safari/Firefox
   use the server-side Whisper fallback; typing works anywhere.
 - **Audio playback:** all modern browsers (m4a/AAC + WAV).
+
+### ⚠️ Voice needs a secure origin (https or localhost)
+Microphone + speech recognition are **only allowed on a secure context** — i.e.
+`https://…` or `http://localhost`. Opening the app at a plain‑HTTP LAN address like
+`http://macstudio.lan:5173` **disables voice** (you'll see a notice and can type
+answers). To use voice over the network:
+
+```bash
+npm run dev:https      # serves https://<host>:5173 (self-signed cert — accept the warning once)
+```
+
+The dev server **proxies** the interview API (`/grade`, `/tts`, `/stt`, `/health`)
+to the backend, so everything stays on one origin — no CORS and no mixed-content
+block when served over HTTPS. Point the proxy at a non-default backend with
+`API_PROXY=http://host:8088 npm run dev:https`. In production, serve over HTTPS and
+set `VITE_INTERVIEW_API_URL` (or reverse-proxy the API under the same origin).
+
+## Diagnostics (latency)
+Timing logs show where a slow grade goes:
+- **Browser console** (on in dev; in prod set `localStorage.ivDebug = "1"`): `[iv]`
+  stage events and `[api]` round-trip timings, e.g. `[api] /grade done ms=2026`.
+- **Server console** (`[civic]` lines): `grade llm=…ms` (pure model time),
+  `/grade total=…ms` (endpoint), and `/tts` / `/stt` timings.
+
+Compare them to localise lag: browser-RTT ≈ server-total → it's the model, not the
+network; a large `llm=` (e.g. `~26000ms`) is a cold model load (see keep-alive tip).
 
 ## Privacy
 Spoken answers are transcribed and graded only to produce feedback; **audio is not

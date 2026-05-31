@@ -2,15 +2,15 @@
 # Civic Test — Service Manager (backend + frontend)
 #
 # Usage:
-#   bash bin/civic.sh start            # start backend (uvicorn) + frontend (vite) in background
-#   bash bin/civic.sh stop             # stop both services
-#   bash bin/civic.sh restart          # stop then start
-#   bash bin/civic.sh status           # show running status + health + recent log lines
-#   bash bin/civic.sh logs             # tail both logs live (colour-coded)
-#   bash bin/civic.sh logs backend     # backend log only
-#   bash bin/civic.sh logs frontend    # frontend log only
-#   bash bin/civic.sh repair           # reinstall frontend deps + verify backend venv
-#   bash bin/civic.sh help
+#   bash bin/civicctl.sh start            # start backend (uvicorn) + frontend (vite) in background
+#   bash bin/civicctl.sh stop             # stop both services
+#   bash bin/civicctl.sh restart          # stop then start
+#   bash bin/civicctl.sh status           # show running status + health + recent log lines
+#   bash bin/civicctl.sh logs             # tail both logs live (colour-coded)
+#   bash bin/civicctl.sh logs backend     # backend log only
+#   bash bin/civicctl.sh logs frontend    # frontend log only
+#   bash bin/civicctl.sh repair           # reinstall frontend deps + verify backend venv
+#   bash bin/civicctl.sh help
 #
 # Options (apply to start/restart):
 #   --port PORT        backend port (default: 8088)
@@ -135,7 +135,7 @@ cmd_start() {
         echo "  Or set CIVIC_PY to a python with fastapi+uvicorn installed." >&2
     elif ! "$PY" -c "import fastapi, uvicorn" 2>/dev/null; then
         fail "fastapi/uvicorn not installed in $PY"
-        echo "  Run: $PY -m pip install -r server/requirements.txt   (or: bash bin/civic.sh repair)" >&2
+        echo "  Run: $PY -m pip install -r server/requirements.txt   (or: bash bin/civicctl.sh repair)" >&2
     else
         info "Starting backend (uvicorn on :${PORT})…"
         {
@@ -189,9 +189,9 @@ cmd_start() {
     curl -sf --max-time 3 "http://localhost:${UI_PORT}"     &>/dev/null && fe_ok=true
     echo ""
     $be_ok && ok "Backend  →  http://localhost:${PORT}  (docs: http://localhost:${PORT}/docs)" \
-           || warn "Backend not responding yet — check: bash bin/civic.sh logs backend"
+           || warn "Backend not responding yet — check: bash bin/civicctl.sh logs backend"
     $fe_ok && ok "Frontend →  http://localhost:${UI_PORT}" \
-           || warn "Frontend not responding yet — check: bash bin/civic.sh logs frontend"
+           || warn "Frontend not responding yet — check: bash bin/civicctl.sh logs frontend"
     echo ""
 }
 
@@ -237,7 +237,7 @@ cmd_status() {
     [ -f "$BACKEND_LOG" ]  && { echo ""; echo -e "${CYAN}backend (last 6 lines):${NC}";  tail -6 "$BACKEND_LOG"  | sed 's/^/  /'; }
     [ -f "$FRONTEND_LOG" ] && { echo ""; echo -e "${CYAN}frontend (last 6 lines):${NC}"; tail -6 "$FRONTEND_LOG" | sed 's/^/  /'; }
     echo ""
-    echo -e "${DIM}Live logs: bash bin/civic.sh logs${NC}"
+    echo -e "${DIM}Live logs: bash bin/civicctl.sh logs${NC}"
     echo ""
 }
 
@@ -273,7 +273,7 @@ cmd_repair() {
     else fail "pnpm install failed"; ((errors++)); fi
 
     echo ""
-    [ "$errors" -eq 0 ] && ok "Repair complete — run: bash bin/civic.sh start" \
+    [ "$errors" -eq 0 ] && ok "Repair complete — run: bash bin/civicctl.sh start" \
                         || fail "Repair finished with $errors error(s)"
     echo ""
 }
@@ -300,9 +300,9 @@ cmd_logs() {
 
 cmd_help() {
     echo ""
-    echo -e "${BOLD}Civic Test Service Manager${NC}"
+    echo -e "${BOLD}Civic Test — Service Manager (civicctl)${NC}"
     echo ""
-    echo "  Usage: bash bin/civic.sh <command> [options]"
+    echo "  Usage: bash bin/civicctl.sh <command> [options]"
     echo ""
     echo "  Commands:"
     echo "    start             Start backend (uvicorn) + frontend (vite) in background"

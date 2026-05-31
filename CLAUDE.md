@@ -1,7 +1,7 @@
 # CLAUDE.md — civic_test
 
 > **Project**: Practice tool for the U.S. USCIS 2008 civics naturalization test
-> **Stack**: React 19 + TypeScript + Vite 8 — pure frontend, no backend
+> **Stack**: React 19 + TypeScript + Vite 8 frontend, with an optional FastAPI backend (`server/`) that powers Interview mode (grade / STT / TTS)
 > **Repo**: https://github.com/sergezab/civic_test (public)
 
 ---
@@ -9,13 +9,39 @@
 ## Quick commands
 
 ```bash
-pnpm dev          # dev server → http://localhost:5173
+pnpm dev          # frontend dev server only → http://localhost:5173
 pnpm build        # type-check + bundle to dist/
 pnpm test --run   # Vitest unit tests (fast, no browser)
 pnpm test         # Vitest watch mode
 pnpm test:e2e     # Playwright e2e (starts dev server automatically)
 pnpm lint         # ESLint
 ```
+
+### Service manager — `bin/civicctl.sh`
+
+Runs **both** the frontend (Vite :5173) and the Interview backend (uvicorn :8088)
+in the background with PID tracking, health checks, and logs. Use this instead of
+`pnpm dev` when you need Interview mode (`?format=interview`) to work — `pnpm dev`
+alone starts only the frontend, so the interview API calls fail.
+
+```bash
+bash bin/civicctl.sh start      # start backend + frontend (background)
+bash bin/civicctl.sh stop       # stop both, free both ports
+bash bin/civicctl.sh restart    # stop then start
+bash bin/civicctl.sh status     # running state + /health + recent log tails
+bash bin/civicctl.sh logs       # live colour-coded tail ([BE]/[FE]); also: logs backend|frontend
+bash bin/civicctl.sh repair     # reinstall pnpm deps + verify/create server venv
+```
+
+Options (for `start`/`restart`/`status`): `--port` (backend, default 8088),
+`--ui-port` (frontend, default 5173), `--no-reload`.
+
+- Backend python: `server/.venv/bin/python` (override with `CIVIC_PY`).
+- Logs / PIDs: `logs/backend.{log,pid}`, `logs/frontend.{log,pid}` (gitignored).
+- Frontend → backend URL is `VITE_INTERVIEW_API_URL` (defaults to `http://localhost:8088`).
+
+> If `http://localhost:5173/...` won't load, the Vite dev server is down — run
+> `bash bin/civicctl.sh status` to see which side stopped, then `restart`.
 
 ---
 

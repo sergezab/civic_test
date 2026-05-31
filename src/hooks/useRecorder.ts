@@ -13,6 +13,7 @@ export interface UseRecorder {
 export function useRecorder(): UseRecorder {
   const supported =
     typeof window !== "undefined" &&
+    window.isSecureContext && // getUserMedia is blocked on insecure origins
     typeof navigator !== "undefined" &&
     !!navigator.mediaDevices?.getUserMedia &&
     typeof MediaRecorder !== "undefined";

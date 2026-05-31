@@ -4,8 +4,10 @@
 
 import { ilog, now, since } from "../utils/log";
 
-const RAW_BASE =
-  import.meta.env.VITE_INTERVIEW_API_URL || "http://localhost:8088";
+// Default: relative (same-origin) so calls go through the Vite dev proxy (or a
+// production reverse proxy) — one secure origin, no CORS, no mixed content when
+// served over HTTPS. Override with VITE_INTERVIEW_API_URL to hit the backend directly.
+const RAW_BASE = import.meta.env.VITE_INTERVIEW_API_URL || "";
 export const INTERVIEW_API_BASE = RAW_BASE.replace(/\/$/, "");
 
 export type Verdict = "correct" | "partial" | "incorrect";
