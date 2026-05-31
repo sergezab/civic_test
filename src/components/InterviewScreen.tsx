@@ -48,7 +48,8 @@ interface LogEntry {
   attempts: number;
 }
 
-const PASS_MARK = 6;
+/** USCIS pass bar is 6 of 10 (60%); scale it to whatever test length is chosen. */
+const passMarkFor = (total: number) => Math.max(1, Math.ceil(total * 0.6));
 const SILENCE_MS = 2200; // auto: stop after this much quiet once speech started
 const NO_SPEECH_MS = 9000; // auto: give up waiting for any speech
 const OUTCOME_ICON: Record<Outcome, string> = {
@@ -302,12 +303,15 @@ export function InterviewScreen({
 
       const firstTry = newLog.filter((e) => e.outcome === "correct").length;
       const notFirstTry = newLog.length - firstTry;
-      const reachedEnd = indexRef.current + 1 >= deckRef.current.length;
-      // Real-exam early stop only when not in retry-practice mode.
+      const total = deckRef.current.length;
+      const passMark = passMarkFor(total);
+      const reachedEnd = indexRef.current + 1 >= total;
+      // Real-exam early stop only when not in retry-practice mode: stop once the
+      // pass mark is reached, or once it's mathematically unreachable.
       const earlyStop =
         mode === "test" &&
         !retryRef.current &&
-        (firstTry >= PASS_MARK || notFirstTry > deckRef.current.length - PASS_MARK);
+        (firstTry >= passMark || notFirstTry > total - passMark);
       if (reachedEnd || earlyStop) {
         ilog("iv", "interview complete", { correct: firstTry, of: newLog.length });
         setDone(true);
