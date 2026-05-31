@@ -1,0 +1,16 @@
+project_name: "civic_test"
+
+languages:
+- typescript
+
+encoding: "utf-8"
+
+ignore_all_files_in_gitignore: true
+
+ignored_paths:
+  - dist/**
+  - .playwright-mcp/**
+
+initial_prompt: "Pure TypeScript/React frontend (Vite 8, React 19). All source is under src/. Use Serena symbol tools for code search and edits across .ts/.tsx files. Run `pnpm test --run` for fast Vitest unit tests; `pnpm test:e2e` for Playwright e2e. No backend — all state is in-memory + localStorage."
+
+read_only: false
