@@ -25,7 +25,7 @@ often faster). Both are long-running local services that auto-start at login:
 | Backend | Port | Auto-start mechanism | Notes |
 |---------|------|----------------------|-------|
 | Ollama | 11434 | Homebrew LaunchAgent (`brew services`) | Default grader (`GRADER_PROVIDER=ollama`). |
-| MLX server | 8088 | LaunchAgent `~/Library/LaunchAgents/com.astra.mlx-vlm.plist` | Shared with `_LLM_ROUTER`. Select with `GRADER_PROVIDER=mlx` (see below). |
+| MLX server | 8088 | per-user LaunchAgent in `~/Library/LaunchAgents/` | Select with `GRADER_PROVIDER=mlx` (see below). |
 
 To grade on MLX instead of Ollama, set in `server/.env`:
 
@@ -57,7 +57,14 @@ ollama pull "$GRADER_MODEL"        # see server/.env (default qwen3.5:9b)
 # MLX server (optional, faster grading)
 python3 -m venv ~/mlx-env
 ~/mlx-env/bin/pip install mlx-lm mlx-vlm mlx-audio fastapi "uvicorn[standard]"
-launchctl load -w ~/Library/LaunchAgents/com.astra.mlx-vlm.plist  # enable + start now and at every login
+
+# Set this to your actual LaunchAgent plist if you named it differently.
+PLIST="$HOME/Library/LaunchAgents/com.astra.mlx-vlm.plist"
+LABEL="$(/usr/libexec/PlistBuddy -c 'Print :Label' "$PLIST")"
+
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
+launchctl enable "gui/$(id -u)/$LABEL"
+launchctl kickstart -k "gui/$(id -u)/$LABEL"
 ```
 
 > **No `source ~/mlx-env/bin/activate` needed.** Calling the venv's binary by its
@@ -77,9 +84,17 @@ brew services list                 # is ollama running?
 brew services restart ollama
 
 # MLX server
-launchctl list | grep mlx-vlm      # running? (PID + last exit code)
-launchctl unload -w ~/Library/LaunchAgents/com.astra.mlx-vlm.plist  # stop + disable
-launchctl load   -w ~/Library/LaunchAgents/com.astra.mlx-vlm.plist  # (re)enable + start
+PLIST="$HOME/Library/LaunchAgents/com.astra.mlx-vlm.plist"  # or your plist path
+LABEL="$(/usr/libexec/PlistBuddy -c 'Print :Label' "$PLIST")"
+
+launchctl list | grep -F "$LABEL"      # running? empty output means not loaded
+launchctl print "gui/$(id -u)/$LABEL"  # richer status
+
+# Reload after editing the plist. `bootout` may fail if the job is not loaded yet;
+# that is okay if the following `bootstrap` succeeds.
+launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
+launchctl kickstart -k "gui/$(id -u)/$LABEL"  # restart now
 tail -f ~/Library/Logs/mlx-vlm.err.log   # startup / crash logs
 ```
 
@@ -92,7 +107,21 @@ tail -f ~/Library/Logs/mlx-vlm.err.log   # startup / crash logs
   `OLLAMA_KEEP_ALIVE=2h` to keep it warm; watch the `[civic] grade llm=…ms` log.
 - **MLX agent has a non-zero exit code** in `launchctl list` — usually a missing
   `~/mlx-env` venv or `mlx_vlm` not installed; read `~/Library/Logs/mlx-vlm.err.log`.
-  After editing the plist, run `launchctl unload` then `load` to apply changes.
+  After editing the plist, run `bootout`, `bootstrap`, then `kickstart` to apply
+  changes.
+- **Your plist or service label is named differently** — set `PLIST` to the actual
+  file under `~/Library/LaunchAgents/`. The commands derive `LABEL` from the
+  plist, so they work even when the label is not `com.astra.mlx-vlm`.
+- **`launchctl unload -w ...` fails with `Unload failed: 5: Input/output error`** —
+  `load` / `unload` are legacy commands and can be opaque on current macOS.
+  Do not retry a `~/Library/LaunchAgents/...` plist with `sudo`; that switches to
+  the LaunchDaemons/root domain and produces warnings like "Expecting a
+  LaunchDaemons path since the command was run as root." Use the `gui/$(id -u)`
+  commands above instead. `bootout` can also fail with error 5 when the job is not
+  loaded; continue with `bootstrap`. If `bootstrap` and `kickstart` succeed and
+  the log shows "Uvicorn running", the service is up. If `bootstrap` fails,
+  validate the plist with `plutil -lint "$PLIST"` and inspect
+  `~/Library/Logs/mlx-vlm.err.log`.
 
 ## 1. Run the API on your Mac
 
