@@ -36,7 +36,8 @@ export default function App() {
             ? questions.filter((q) => bookmarks.has(q.id))
             : questions;
 
-      let list = cfg.mode === "test" ? sample(pool, TEST_LENGTH) : shuffle(pool);
+      let list =
+        cfg.mode === "test" ? sample(pool, cfg.count ?? TEST_LENGTH) : shuffle(pool);
 
       if (startId !== undefined) {
         const pos = list.findIndex((q) => q.id === startId);
@@ -56,6 +57,7 @@ export default function App() {
         format: cfg.format,
         mode: cfg.mode,
         pool: cfg.pool,
+        count: cfg.mode === "test" ? String(cfg.count ?? TEST_LENGTH) : null,
         q: list[0]?.id?.toString() ?? null,
         stage: null,
       });
@@ -66,9 +68,9 @@ export default function App() {
   // Auto-start from URL on first load (bookmarks are read synchronously from
   // localStorage so they're correct on the first render that startQuiz closes over).
   useEffect(() => {
-    const { format, mode, pool, q } = readUrlParams();
+    const { format, mode, pool, count, q } = readUrlParams();
     if (format && mode && pool) {
-      const cfg = { format, mode, pool } as QuizConfig;
+      const cfg = { format, mode, pool, count: count ?? undefined } as QuizConfig;
       startQuiz(cfg, q ?? undefined);
     }
     // intentionally run once on mount only

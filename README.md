@@ -11,6 +11,18 @@ governor, capital) filled in from `uscis.gov/citizenship/testupdates`.
 
 ---
 
+## Screenshots
+
+![Start screen](docs/screenshots/shot-start.png)
+
+| Quiz — multiple choice + feedback | Flash cards — flip to the answer |
+|---|---|
+| ![Quiz](docs/screenshots/shot-quiz.png) | ![Flash cards](docs/screenshots/shot-flash.png) |
+| **Interview — Hands-free / Manual / Retry + per-answer timer** | **Interview — answering with the countdown** |
+| ![Interview controls](docs/screenshots/shot-interview.png) | ![Interview answering](docs/screenshots/shot-interview-listening.png) |
+
+---
+
 ## Three study modes
 
 | Mode | What it does |
@@ -140,13 +152,16 @@ feedback, and the best answer to say. It accepts **paraphrases and synonyms** li
 a real officer. If the LLM is down or replies with junk, a deterministic
 string-match grader takes over so you always get a verdict.
 
-### Interview mode — Manual, Hands-free & Retry
-- **Manual:** tap **🎤 Answer out loud**, speak, tap **■ Stop & submit** (one tap
-  to send — no separate review step), then **Next**.
+### Interview mode — Manual, Hands-free, Retry & timer
+- **Manual:** tap **🎤 Answer out loud**, speak, tap **Submit** (one tap to send —
+  no separate review step), then **Next**.
 - **Hands-free:** reads the question, **auto-listens**, detects when you stop
   talking (~2.2 s of silence), grades, **speaks the feedback**, and **advances by
   itself** — a self-running mock interview, with **Pause/Resume** anytime. (Needs
   Chrome/Edge speech recognition.)
+- **Per-answer timer:** a configurable countdown (⏱ **30 s default, up to 2 min**)
+  runs while you answer; the **Submit** button shows the time remaining and
+  **auto-submits at 0**, so a recording never runs forever.
 - **Retry wrong answers** (checkbox): on a miss, after the officer explains the
   answer you get **one more try**. Each question is tracked as **✓ correct** (first
   try), **↻ review** (correct only on retry), or **✕ missed**. The end screen shows

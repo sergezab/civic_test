@@ -25,7 +25,7 @@ test.describe('Quiz mode', () => {
   test('starts quiz and URL reflects state', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: 'Start 10-question test' }).click()
-    await expect(page).toHaveURL(/format=quiz&mode=test&pool=all&q=\d+&stage=ask/)
+    await expect(page).toHaveURL(/format=quiz&mode=test&pool=all&count=10&q=\d+&stage=ask/)
   })
 
   test('bookmark button toggles and persists', async ({ page }) => {
@@ -61,7 +61,7 @@ test.describe('Flash card mode', () => {
     await page.getByRole('button', { name: 'Flash cards' }).click()
     await page.getByRole('button', { name: 'Study 10 cards' }).click()
     await expect(page.locator('.flash-nav')).toBeVisible()
-    await expect(page).toHaveURL(/format=flash&mode=test&pool=all&q=\d+&stage=front/)
+    await expect(page).toHaveURL(/format=flash&mode=test&pool=all&count=10&q=\d+&stage=front/)
   })
 
   test('bookmark button works in flash mode', async ({ page }) => {

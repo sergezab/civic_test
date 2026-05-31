@@ -57,6 +57,10 @@ const OUTCOME_ICON: Record<Outcome, string> = {
   missed: "✕",
 };
 
+const ANSWER_TIME_OPTIONS = [30, 45, 60, 90, 120];
+const fmtTime = (s: number) =>
+  `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
+
 export function InterviewScreen({
   questions,
   mode,
@@ -93,6 +97,18 @@ export function InterviewScreen({
     }
   });
 
+  // Per-answer time limit (seconds): 30 default, up to 120.
+  const [answerSecs, setAnswerSecs] = useState<number>(() => {
+    try {
+      const n = Number(localStorage.getItem("iv-answer-secs"));
+      if (n >= 30 && n <= 120) return n;
+    } catch {
+      /* ignore */
+    }
+    return 30;
+  });
+  const [remaining, setRemaining] = useState(answerSecs);
+
   const [server, setServer] = useState<Server>("checking");
   const [index, setIndex] = useState(0);
   const [deck, setDeck] = useState<Question[]>(questions);
@@ -123,6 +139,8 @@ export function InterviewScreen({
   useEffect(() => void (logRef.current = log), [log]);
   useEffect(() => void (indexRef.current = index), [index]);
   useEffect(() => void (deckRef.current = deck), [deck]);
+  const transcriptRef = useRef("");
+  useEffect(() => void (transcriptRef.current = rec.transcript), [rec.transcript]);
 
   useEffect(() => {
     try {
@@ -138,6 +156,13 @@ export function InterviewScreen({
       /* ignore */
     }
   }, [retry]);
+  useEffect(() => {
+    try {
+      localStorage.setItem("iv-answer-secs", String(answerSecs));
+    } catch {
+      /* ignore */
+    }
+  }, [answerSecs]);
 
   const q = deck[index];
 
@@ -366,11 +391,10 @@ export function InterviewScreen({
     rec.start();
     setStage("listening");
   };
-  const manualStopSubmit = () => {
-    const text = rec.transcript;
+  const manualStopSubmit = useCallback(() => {
     rec.stop();
-    submitText(text);
-  };
+    submitText(transcriptRef.current);
+  }, [rec, submitText]);
 
   const startAudioRecording = async () => {
     setNetError(null);
@@ -379,7 +403,7 @@ export function InterviewScreen({
     if (ok) setStage("rec-audio");
     else setNetError("Couldn't access the microphone — type your answer instead.");
   };
-  const stopAudioRecording = async () => {
+  const stopAudioRecording = useCallback(async () => {
     const blob = await recorder.stop();
     if (!blob) {
       setStage("ready");
@@ -387,13 +411,30 @@ export function InterviewScreen({
     }
     setStage("transcribing");
     try {
-      const text = await transcribeAudio(blob);
-      submitText(text);
+      submitText(await transcribeAudio(blob));
     } catch {
       setNetError("Transcription failed — type your answer instead.");
       setStage("ready");
     }
-  };
+  }, [recorder, submitText]);
+
+  // Per-answer countdown — auto-submit when the time limit runs out (manual modes).
+  useEffect(() => {
+    const counting = (!auto && stage === "listening") || stage === "rec-audio";
+    if (!counting) return;
+    setRemaining(answerSecs);
+    const deadline = Date.now() + answerSecs * 1000;
+    const id = window.setInterval(() => {
+      const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      setRemaining(left);
+      if (left <= 0) {
+        window.clearInterval(id);
+        if (stage === "rec-audio") void stopAudioRecording();
+        else manualStopSubmit();
+      }
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [auto, stage, answerSecs, manualStopSubmit, stopAudioRecording]);
 
   // Free redo (re-answer without scoring it as a new attempt).
   const redo = () => {
@@ -569,6 +610,19 @@ export function InterviewScreen({
           />
           ↻ Retry wrong answers
         </label>
+        <label className="answer-time" title="Time limit per answer before it auto-submits">
+          ⏱
+          <select
+            value={answerSecs}
+            onChange={(e) => setAnswerSecs(Number(e.target.value))}
+          >
+            {ANSWER_TIME_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s < 60 ? `${s}s` : `${s / 60} min`}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {insecureVoice && (
@@ -617,6 +671,9 @@ export function InterviewScreen({
             ) : (
               <p>When you’re ready, answer the officer out loud.</p>
             )}
+            {!auto && !(auto && (paused || !autoStarted)) && (
+              <p className="time-hint">You’ll have {fmtTime(answerSecs)} to answer.</p>
+            )}
             <p className="privacy-note">
               🔒 Your answer is transcribed and graded to give feedback — audio
               isn’t stored.
@@ -627,14 +684,15 @@ export function InterviewScreen({
 
         {stage === "listening" && (
           <div className="live-transcript" aria-live="polite">
-            <span className="rec-dot" /> {auto ? "Listening…" : "Listening — tap stop when done."}
+            <span className="rec-dot" />{" "}
+            {auto ? "Listening…" : `Listening — ${fmtTime(remaining)} left`}
             <p>{rec.transcript || "Speak your answer."}</p>
           </div>
         )}
 
         {stage === "rec-audio" && (
           <div className="live-transcript" aria-live="polite">
-            <span className="rec-dot" /> Recording… speak your answer, then stop.
+            <span className="rec-dot" /> Recording — {fmtTime(remaining)} left. Speak your answer.
           </div>
         )}
 
@@ -710,12 +768,12 @@ export function InterviewScreen({
         )}
         {!auto && stage === "listening" && (
           <button className="mic-btn is-recording" onClick={manualStopSubmit}>
-            ■ Stop &amp; submit
+            Submit · {fmtTime(remaining)}
           </button>
         )}
         {!auto && stage === "rec-audio" && (
           <button className="mic-btn is-recording" onClick={stopAudioRecording}>
-            ■ Stop &amp; submit
+            Submit · {fmtTime(remaining)}
           </button>
         )}
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export type Pool = "all" | "senior" | "bookmarks";
 export type Mode = "test" | "practice";
@@ -8,6 +8,8 @@ export interface QuizConfig {
   pool: Pool;
   mode: Mode;
   format: Format;
+  /** Number of questions for a `test` run. Ignored for `practice`. */
+  count?: number;
 }
 
 interface StartScreenProps {
@@ -16,16 +18,40 @@ interface StartScreenProps {
   bookmarkCount: number;
 }
 
+// Sizes of the fixed pools (the variable "bookmarks" pool uses bookmarkCount).
+const SENIOR_COUNT = 20;
+const TOTAL_COUNT = 100;
+// Offered test lengths; the current pool's full size is always appended so you
+// can run the whole set, and any length larger than the pool is dropped.
+const BASE_COUNTS = [10, 25, 50, 100];
+
 export function StartScreen({ onStart, speechSupported, bookmarkCount }: StartScreenProps) {
   const [pool, setPool] = useState<Pool>("all");
   const [format, setFormat] = useState<Format>("quiz");
+  const [count, setCount] = useState(10);
 
   const isFlash = format === "flash";
   const isInterview = format === "interview";
   const isBookmarks = pool === "bookmarks";
   const noBookmarks = isBookmarks && bookmarkCount === 0;
 
-  const start = (mode: Mode) => onStart({ pool, mode, format });
+  const poolSize =
+    pool === "senior" ? SENIOR_COUNT : pool === "bookmarks" ? bookmarkCount : TOTAL_COUNT;
+
+  const countOptions = useMemo(() => {
+    const opts = BASE_COUNTS.filter((n) => n < poolSize);
+    if (poolSize > 0) opts.push(poolSize); // full-pool option
+    return Array.from(new Set(opts)).sort((a, b) => a - b);
+  }, [poolSize]);
+
+  // Keep the selected length valid when the pool (and so its size) changes.
+  useEffect(() => {
+    if (countOptions.length && !countOptions.includes(count)) {
+      setCount(countOptions.includes(10) ? 10 : countOptions[countOptions.length - 1]);
+    }
+  }, [countOptions, count]);
+
+  const start = (mode: Mode) => onStart({ pool, mode, format, count });
 
   return (
     <div className="screen start-screen">
@@ -95,6 +121,27 @@ export function StartScreen({ onStart, speechSupported, bookmarkCount }: StartSc
             : "The full pool of 100 civics questions."}
       </p>
 
+      {countOptions.length > 1 && (
+        <>
+          <div className="pool-toggle count-toggle" role="group" aria-label="Number of questions">
+            {countOptions.map((n) => (
+              <button
+                key={n}
+                className={count === n ? "is-active" : ""}
+                onClick={() => setCount(n)}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <p className="pool-note">
+            {count === poolSize
+              ? `All ${poolSize} question${poolSize === 1 ? "" : "s"} in this set, shuffled.`
+              : `${count} question${count === 1 ? "" : "s"} drawn at random from the ${poolSize}.`}
+          </p>
+        </>
+      )}
+
       <div className="start-actions">
         <button
           className="btn btn-primary"
@@ -102,10 +149,10 @@ export function StartScreen({ onStart, speechSupported, bookmarkCount }: StartSc
           disabled={noBookmarks}
         >
           {isInterview
-            ? "Start mock interview"
+            ? `Start ${count}-question interview`
             : isFlash
-              ? "Study 10 cards"
-              : "Start 10-question test"}
+              ? `Study ${count} cards`
+              : `Start ${count}-question test`}
         </button>
         <button
           className="btn btn-ghost"

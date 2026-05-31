@@ -19,7 +19,7 @@ export function ResultsScreen({
   onHome,
   onStudyBookmarks,
 }: ResultsScreenProps) {
-  const threshold = mode === "test" ? 6 : Math.ceil(total * 0.6);
+  const threshold = Math.ceil(total * 0.6);
   const passed = score >= threshold;
   const pct = Math.round((score / total) * 100);
 
@@ -34,7 +34,7 @@ export function ResultsScreen({
       <h1 className="result-title">{passed ? "You passed! 🎉" : "Keep studying"}</h1>
       <p className="result-detail">
         {mode === "test"
-          ? `You need 6 of 10 correct to pass the civics test. You scored ${score} (${pct}%).`
+          ? `You need ${threshold} of ${total} correct to pass${total === 10 ? " the civics test" : ""}. You scored ${score} (${pct}%).`
           : `You scored ${score} of ${total} (${pct}%) across the question set.`}
       </p>
 

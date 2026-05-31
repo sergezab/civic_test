@@ -2,6 +2,7 @@ export interface UrlParams {
   format: string | null;
   mode: string | null;
   pool: string | null;
+  count: number | null;
   q: number | null;
   stage: string | null;
 }
@@ -9,10 +10,12 @@ export interface UrlParams {
 export function readUrlParams(): UrlParams {
   const p = new URLSearchParams(window.location.search);
   const qRaw = p.get("q");
+  const countRaw = p.get("count");
   return {
     format: p.get("format"),
     mode: p.get("mode"),
     pool: p.get("pool"),
+    count: countRaw !== null ? Number(countRaw) : null,
     q: qRaw !== null ? Number(qRaw) : null,
     stage: p.get("stage"),
   };
