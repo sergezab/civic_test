@@ -115,7 +115,7 @@ cd server
 uv venv
 uv pip install -r requirements.txt
 uv pip install -e ../../llm_core     # shared LLM library
-uv run uvicorn app:app --port 8088
+uv run uvicorn app:app --port 8090
 ```
 Requirements: **Ollama** reachable with a grader model pulled. Configure the
 backend in `server/.env` (copy from `.env.example`) — e.g. point `OLLAMA_HOST` at

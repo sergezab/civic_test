@@ -13,7 +13,7 @@
 #   bash bin/civicctl.sh help
 #
 # Options (apply to start/restart):
-#   --port PORT        backend port (default: 8088)
+#   --port PORT        backend port (default: 8090, env: CIVIC_BACKEND_PORT)
 #   --ui-port PORT     frontend port (default: 5173)
 #   --no-reload        disable uvicorn auto-reload
 #
@@ -43,7 +43,15 @@ DISPATCH_SCRIPT="$REPO_ROOT/bin/dev-https-dispatcher.mjs"
 SERVER_DIR="$REPO_ROOT/server"
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
-PORT=8088
+# Backend port. Defaults to 8090 (8088 is taken by mlx_vlm.server on some hosts).
+# Precedence: --port flag > CIVIC_BACKEND_PORT env > server/.env > 8090 default.
+# server/.env is the repo's single source of truth so every machine agrees.
+if [ -z "${CIVIC_BACKEND_PORT:-}" ] && [ -f "$SERVER_DIR/.env" ]; then
+    _env_port=$(grep -E '^[[:space:]]*CIVIC_BACKEND_PORT=' "$SERVER_DIR/.env" 2>/dev/null \
+        | tail -n1 | cut -d= -f2 | tr -d '[:space:]')
+    [ -n "$_env_port" ] && CIVIC_BACKEND_PORT="$_env_port"
+fi
+PORT="${CIVIC_BACKEND_PORT:-8090}"
 UI_PORT=5173
 UI_HOST="0.0.0.0"   # bind wildcard so http://<host>.lan:5173 works on the LAN
 RELOAD="--reload"
@@ -379,7 +387,7 @@ cmd_help() {
     echo "    help              Show this message"
     echo ""
     echo "  Options (for start/restart/status):"
-    echo "    --port PORT       Backend port (default: 8088)"
+    echo "    --port PORT       Backend port (default: 8090, env: CIVIC_BACKEND_PORT)"
     echo "    --ui-port PORT    Frontend port (default: 5173)"
     echo "    --no-reload       Disable uvicorn auto-reload"
     echo "    --https           Serve frontend over self-signed TLS (mic needs secure ctx)"

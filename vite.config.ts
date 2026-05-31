@@ -4,7 +4,7 @@ import basicSsl from '@vitejs/plugin-basic-ssl'
 
 // Backend to proxy the interview API to (so the browser only talks to this
 // origin — same-origin, no CORS, no mixed-content when served over HTTPS).
-const apiTarget = process.env.API_PROXY || 'http://localhost:8088'
+const apiTarget = process.env.API_PROXY || 'http://localhost:8090'
 // Opt-in HTTPS for LAN access (voice needs a secure origin). `npm run dev:https`.
 const useHttps = process.env.HTTPS === '1'
 const apiProxy = { target: apiTarget, changeOrigin: true }

@@ -5,7 +5,7 @@ running on your Mac, exposed to the internet through a **Cloudflare Tunnel**. Th
 LLM (Ollama), TTS (Piper) and STT (faster-whisper) all run locally and free.
 
 ```
-visitor browser ──HTTPS──> Cloudflare Tunnel ──> localhost:8088 (FastAPI)
+visitor browser ──HTTPS──> Cloudflare Tunnel ──> localhost:8090 (FastAPI)
                                                     ├─ llm_core → Ollama (grade)
                                                     ├─ Piper (tts)
                                                     └─ faster-whisper (stt)
@@ -45,6 +45,12 @@ python3 -m venv ~/mlx-env
 launchctl load -w ~/Library/LaunchAgents/com.astra.mlx-vlm.plist  # enable + start now and at every login
 ```
 
+> **No `source ~/mlx-env/bin/activate` needed.** Calling the venv's binary by its
+> absolute path (`~/mlx-env/bin/pip`) installs into the venv just like activating
+> would, without mutating your shell. At runtime the server is launched by launchd
+> (the plist points straight at `~/mlx-env/bin/python`), so there's no shell to
+> activate either. Activate it yourself only if you want to run the server by hand.
+
 MLX loads the model into VRAM on the **first** request, so that grade can take
 ~20–30 s; subsequent grades are fast.
 
@@ -64,8 +70,9 @@ tail -f ~/Library/Logs/mlx-vlm.err.log   # startup / crash logs
 
 **Common issues**
 
-- **8088 already in use** — find the holder with
-  `lsof -nP -iTCP:8088 -sTCP:LISTEN`; run the civic_test API on `--port 8090`.
+- **8090 already in use** — find the holder with
+  `lsof -nP -iTCP:8090 -sTCP:LISTEN`; run the civic_test API on another `--port`
+  (or set `CIVIC_BACKEND_PORT`).
 - **Slow first grade (~20–30 s)** — model loading into VRAM. For Ollama set
   `OLLAMA_KEEP_ALIVE=2h` to keep it warm; watch the `[civic] grade llm=…ms` log.
 - **MLX agent has a non-zero exit code** in `launchctl list` — usually a missing
@@ -76,7 +83,7 @@ tail -f ~/Library/Logs/mlx-vlm.err.log   # startup / crash logs
 
 ```bash
 cd server
-uv run uvicorn app:app --host 127.0.0.1 --port 8088
+uv run uvicorn app:app --host 127.0.0.1 --port 8090
 # Ollama reachable with your grader model pulled (see server/.env: OLLAMA_HOST / GRADER_MODEL).
 ```
 
@@ -84,7 +91,7 @@ uv run uvicorn app:app --host 127.0.0.1 --port 8088
 
 ```bash
 brew install cloudflared
-cloudflared tunnel --url http://localhost:8088
+cloudflared tunnel --url http://localhost:8090
 # → prints a public https URL, e.g. https://random-words.trycloudflare.com
 ```
 
