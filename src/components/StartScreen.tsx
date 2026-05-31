@@ -2,7 +2,7 @@ import { useState } from "react";
 
 export type Pool = "all" | "senior" | "bookmarks";
 export type Mode = "test" | "practice";
-export type Format = "quiz" | "flash";
+export type Format = "quiz" | "flash" | "interview";
 
 export interface QuizConfig {
   pool: Pool;
@@ -21,6 +21,7 @@ export function StartScreen({ onStart, speechSupported, bookmarkCount }: StartSc
   const [format, setFormat] = useState<Format>("quiz");
 
   const isFlash = format === "flash";
+  const isInterview = format === "interview";
   const isBookmarks = pool === "bookmarks";
   const noBookmarks = isBookmarks && bookmarkCount === 0;
 
@@ -36,24 +37,32 @@ export function StartScreen({ onStart, speechSupported, bookmarkCount }: StartSc
         check yourself against the official answer.
       </p>
 
-      <div className="pool-toggle" role="group" aria-label="Study format">
+      <div className="pool-toggle format-toggle" role="group" aria-label="Study format">
         <button
-          className={!isFlash ? "is-active" : ""}
+          className={format === "quiz" ? "is-active" : ""}
           onClick={() => setFormat("quiz")}
         >
           Quiz
         </button>
         <button
-          className={isFlash ? "is-active" : ""}
+          className={format === "flash" ? "is-active" : ""}
           onClick={() => setFormat("flash")}
         >
           Flash cards
         </button>
+        <button
+          className={format === "interview" ? "is-active" : ""}
+          onClick={() => setFormat("interview")}
+        >
+          🎤 Interview
+        </button>
       </div>
       <p className="pool-note">
-        {isFlash
-          ? "Hear the question, recall the answer, then flip the card to check it. No multiple choice, no scoring."
-          : "Hear the question, choose A–D, and see the official answer with feedback."}
+        {isInterview
+          ? "Speak your answers to an AI USCIS officer that grades them and replies with spoken feedback — the closest practice to the real oral test."
+          : isFlash
+            ? "Hear the question, recall the answer, then flip the card to check it. No multiple choice, no scoring."
+            : "Hear the question, choose A–D, and see the official answer with feedback."}
       </p>
 
       <div className="pool-toggle" role="group" aria-label="Question set">
