@@ -15,7 +15,7 @@ import json
 import re
 import threading
 import time
-from typing import Literal, TypedDict
+from typing import Literal, Protocol, TypedDict
 
 import requests
 
@@ -228,6 +228,15 @@ _GUARDRAIL_FEEDBACK = (
     "I can only evaluate answers to the civics question. Instructions to change "
     "prompts, reveal hidden content, or perform computer actions are ignored."
 )
+_LLM_GUARD_UNAVAILABLE = object()
+
+
+class _PromptInjectionScanner(Protocol):
+    def scan(self, prompt: str) -> tuple[str, bool, float]: ...
+
+
+_llm_guard_lock = threading.Lock()
+_llm_guard_scanner: _PromptInjectionScanner | object | None = None
 
 
 def _tokens(s: str) -> set[str]:
@@ -246,6 +255,51 @@ def _prompt_injection_reason(transcript: str) -> str | None:
         if pattern.search(normalized):
             return reason
     return None
+
+
+def _load_llm_guard_scanner() -> _PromptInjectionScanner | None:
+    """Lazy-load llm-guard's local PromptInjection scanner."""
+    global _llm_guard_scanner
+    if not config.LLM_GUARD_ENABLED:
+        return None
+    if _llm_guard_scanner is _LLM_GUARD_UNAVAILABLE:
+        return None
+    if _llm_guard_scanner is not None:
+        return _llm_guard_scanner  # type: ignore[return-value]
+
+    with _llm_guard_lock:
+        if _llm_guard_scanner is _LLM_GUARD_UNAVAILABLE:
+            return None
+        if _llm_guard_scanner is not None:
+            return _llm_guard_scanner  # type: ignore[return-value]
+        try:
+            from llm_guard.input_scanners import PromptInjection
+
+            _llm_guard_scanner = PromptInjection(threshold=config.LLM_GUARD_THRESHOLD)
+            log.info(
+                "llm-guard prompt-injection scanner loaded threshold=%.2f",
+                config.LLM_GUARD_THRESHOLD,
+            )
+        except Exception as exc:
+            _llm_guard_scanner = _LLM_GUARD_UNAVAILABLE
+            log.warning("llm-guard unavailable (%s: %s)", type(exc).__name__, exc)
+            return None
+        return _llm_guard_scanner  # type: ignore[return-value]
+
+
+def _llm_guard_reason(transcript: str) -> str | None:
+    """Return a reason from llm-guard when it classifies the transcript as unsafe."""
+    scanner = _load_llm_guard_scanner()
+    if scanner is None:
+        return None
+    try:
+        _sanitized, is_valid, risk_score = scanner.scan(transcript)
+    except Exception as exc:
+        log.warning("llm-guard scan failed (%s: %s)", type(exc).__name__, exc)
+        return None
+    if is_valid:
+        return None
+    return f"llm_guard:{risk_score:.2f}"
 
 
 def _guardrail_response(accepted: list[str], transcript: str) -> GradeResult:
@@ -321,6 +375,9 @@ class Grader:
                 "fallback": True,
             }
         if reason := _prompt_injection_reason(transcript):
+            log.warning("grade blocked unsafe transcript reason=%s", reason)
+            return _guardrail_response(accepted, transcript)
+        if reason := _llm_guard_reason(transcript):
             log.warning("grade blocked unsafe transcript reason=%s", reason)
             return _guardrail_response(accepted, transcript)
 

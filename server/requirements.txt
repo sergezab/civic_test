@@ -5,6 +5,7 @@ python-multipart>=0.0.9
 python-dotenv>=1.0
 faster-whisper>=1.0
 piper-tts>=1.4
+llm-guard==0.3.16
 # llm-core is installed editable from the sibling repo — see README.md:
 #   uv pip install -e /Users/astra/dev/startups/llm_core
 # Phase 3 adds: faster-whisper (STT) and Piper (TTS, via system binary)

@@ -458,7 +458,7 @@ export function InterviewScreen({
   }, [rec.error]);
 
   useEffect(() => {
-    if (stage === "result") resultPanelRef.current?.focus();
+    if (stage === "result") resultPanelRef.current?.focus({ preventScroll: true });
   }, [stage, result?.verdict]);
 
   // ── Manual controls ───────────────────────────────────────────

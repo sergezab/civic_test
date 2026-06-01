@@ -135,6 +135,12 @@ textarea:focus-visible,
   display: flex;
 }
 
+.content-interview {
+  max-width: 980px;
+  padding-top: clamp(14px, 2vw, 28px);
+  padding-bottom: 16px;
+}
+
 .screen {
   width: 100%;
   display: flex;
@@ -147,6 +153,15 @@ textarea:focus-visible,
   font-size: 12px;
   color: var(--ink-soft);
   padding: 18px 16px 28px;
+}
+
+.app-interview .site-header {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.app-interview .site-footer {
+  padding: 10px 16px 14px;
 }
 
 /* ---------- Start screen ---------- */
@@ -599,6 +614,10 @@ button.choice:hover {
   gap: 16px;
 }
 
+.content-interview .interview-screen {
+  gap: 12px;
+}
+
 .mode-toggle {
   display: inline-flex;
   align-self: center;
@@ -635,6 +654,9 @@ button.choice:hover {
   justify-content: center;
   gap: 16px;
   flex-wrap: wrap;
+}
+.content-interview .iv-controls {
+  gap: 12px;
 }
 .retry-toggle {
   display: inline-flex;
@@ -678,6 +700,29 @@ button.choice:hover {
   background: #fff;
   cursor: pointer;
 }
+
+.content-interview .question-bar {
+  max-width: 860px;
+  border-radius: 24px;
+  padding: 14px 24px 22px;
+}
+.content-interview .question-meta {
+  min-height: 24px;
+  margin-bottom: 6px;
+}
+.content-interview .question-text {
+  font-size: clamp(24px, 2.2vw, 31px);
+  line-height: 1.18;
+}
+.content-interview .repeat-btn {
+  margin-top: -2px;
+}
+.content-interview .answer-area,
+.content-interview .footer-bar,
+.content-interview .interview-status {
+  max-width: 760px;
+}
+
 .time-hint {
   margin: 8px 0 0;
   font-size: 13px;
@@ -801,6 +846,9 @@ button.choice:hover {
   padding: 20px 22px;
   box-shadow: var(--shadow-sm);
 }
+.content-interview .officer-result {
+  padding: 16px 20px;
+}
 .officer-result.verdict-correct {
   border-color: var(--green-edge);
   background: var(--green-bg);
@@ -818,6 +866,9 @@ button.choice:hover {
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
+}
+.content-interview .verdict-badge {
+  margin-bottom: 6px;
 }
 .verdict-icon {
   width: 30px;
@@ -849,6 +900,11 @@ button.choice:hover {
   font-size: 18px;
   line-height: 1.5;
   color: var(--ink);
+}
+.content-interview .officer-feedback {
+  margin: 4px 0 10px;
+  font-size: 17px;
+  line-height: 1.4;
 }
 .heard-line {
   display: flex;
@@ -883,6 +939,10 @@ button.choice:hover {
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(16, 42, 84, 0.12);
 }
+.content-interview .accepted-answer-panel {
+  margin-top: 10px;
+  padding: 10px 12px;
+}
 .accepted-answer-title {
   margin: 0 0 6px;
   font-size: 12px;
@@ -896,6 +956,9 @@ button.choice:hover {
   padding-left: 20px;
   color: var(--ink);
   line-height: 1.5;
+}
+.content-interview .accepted-answer-panel ul {
+  line-height: 1.35;
 }
 .accepted-answer-panel li + li {
   margin-top: 3px;
@@ -939,6 +1002,15 @@ button.choice:hover {
   gap: 10px;
   align-items: center;
 }
+.content-interview .interview-footer {
+  gap: 8px;
+  margin-top: 0;
+}
+.content-interview .interview-footer .btn,
+.content-interview .interview-footer .mic-btn {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
 
 .interview-status {
   width: 100%;
@@ -948,6 +1020,10 @@ button.choice:hover {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+.content-interview .interview-status {
+  margin-top: 2px;
+  gap: 12px;
 }
 .interview-status .progress-label {
   margin: 0;
@@ -972,6 +1048,9 @@ button.choice:hover {
   background: rgba(255, 255, 255, 0.7);
   border: 1px solid var(--border);
   overflow: hidden;
+}
+.content-interview .interview-progress {
+  margin: 6px 0;
 }
 .interview-progress-fill {
   height: 100%;
@@ -1006,6 +1085,19 @@ button.choice:hover {
   flex: 0 0 auto;
   padding: 9px 14px;
   font-size: 13px;
+}
+
+@media (min-width: 760px) {
+  .content-interview .interview-footer {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .content-interview .interview-footer .btn-wide {
+    width: auto;
+    max-width: none;
+    flex: 1 1 520px;
+  }
 }
 
 @media (max-width: 640px) {

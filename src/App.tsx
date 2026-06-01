@@ -141,9 +141,10 @@ export default function App() {
     () => session.map((q) => q.id).join("-"),
     [session],
   );
+  const isInterviewLayout = phase === "quiz" && config?.format === "interview";
 
   return (
-    <div className="app">
+    <div className={`app${isInterviewLayout ? " app-interview" : ""}`}>
       <Header
         muted={speech.muted}
         onToggleMute={speech.toggleMute}
@@ -151,7 +152,7 @@ export default function App() {
         onHome={goHome}
       />
 
-      <main className="content">
+      <main className={`content${isInterviewLayout ? " content-interview" : ""}`}>
         {phase === "start" && (
           <StartScreen
             onStart={startQuiz}

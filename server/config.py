@@ -54,6 +54,8 @@ TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "0") == "1"
 GRADE_CONCURRENCY = int(os.getenv("GRADE_CONCURRENCY", "1"))
 TTS_CONCURRENCY = int(os.getenv("TTS_CONCURRENCY", "1"))
 STT_CONCURRENCY = int(os.getenv("STT_CONCURRENCY", "1"))
+LLM_GUARD_ENABLED = os.getenv("LLM_GUARD_ENABLED", "1") == "1"
+LLM_GUARD_THRESHOLD = float(os.getenv("LLM_GUARD_THRESHOLD", "0.92"))
 
 # Logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()

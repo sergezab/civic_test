@@ -8,7 +8,7 @@ feedback (TTS). Setup/run/config: [`README.md`](README.md); deploy: [`DEPLOY.md`
 | File | Role |
 |---|---|
 | `app.py` | Thin FastAPI route layer: Pydantic models, CORS, in-memory per-IP rate limit, capped uploads, request IDs, and timing logs. |
-| `grader.py` | `Grader` service singleton. Blocks obvious prompt-injection/tool-abuse transcripts before the LLM, builds the officer prompt, calls Ollama `/api/chat` directly with `think:false`, parses strict JSON, and falls back to deterministic string matching. Never raises. |
+| `grader.py` | `Grader` service singleton. Blocks obvious prompt-injection/tool-abuse transcripts before the LLM, lazily uses `llm-guard`'s PromptInjection scanner when enabled, builds the officer prompt, calls Ollama `/api/chat` directly with `think:false`, parses strict JSON, and falls back to deterministic string matching. Never raises. |
 | `tts.py` | `TtsEngine` service singleton. Text→speech via **Piper** (`voices/*.onnx`) with a macOS `say` fallback → WAV bytes. |
 | `stt.py` | `SttEngine` service singleton. Speech→text via **faster-whisper** with locked lazy model loading. |
 | `config.py` | Env-driven settings; auto-loads `server/.env` (`python-dotenv`). |
@@ -28,8 +28,8 @@ feedback (TTS). Setup/run/config: [`README.md`](README.md); deploy: [`DEPLOY.md`
 - **Handlers never raise** — validate inputs, cap sizes (transcript/answers/audio),
   and return graceful JSON or a deterministic fallback.
 - **Treat the transcript as untrusted data**: block injection/tool/file/secret-abuse
-  attempts before the LLM and keep the grading prompt tightly scoped to USCIS
-  civics evaluation.
+  attempts before the LLM, run the optional local `llm-guard` scanner, and keep
+  the grading prompt tightly scoped to USCIS civics evaluation.
 - **Log timing** for `/grade` (`grade llm=…ms` + `total`), `/tts`, `/stt`, and
   request lines with `x-request-id`.
 - Secrets only via env (`server/.env`, git-ignored); `.env.example` documents all

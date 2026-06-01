@@ -41,10 +41,13 @@ empty ("I didn't catch an answer").
 
 The grader treats transcripts as untrusted data. Obvious prompt-injection,
 prompt-extraction, command-execution, file-deletion, tool/API-abuse, or secret
-exfiltration requests are blocked before the transcript is sent to the LLM. The
-response remains inside the normal `/grade` contract: `verdict: "incorrect"`,
-`model: null`, `fallback: true`, with feedback telling the applicant the officer
-can only evaluate civics-test answers.
+exfiltration requests are blocked before the transcript is sent to the LLM. A
+lazy `llm-guard` PromptInjection scanner adds a local ML-based check when
+`LLM_GUARD_ENABLED=1`; if the package/model is unavailable, the deterministic
+guard still runs and grading continues gracefully. Blocked responses remain inside
+the normal `/grade` contract: `verdict: "incorrect"`, `model: null`,
+`fallback: true`, with feedback telling the applicant the officer can only
+evaluate civics-test answers.
 
 ## Configuration (`.env`)
 
@@ -56,6 +59,7 @@ can only evaluate civics-test answers.
 | `GRADE_TIMEOUT` / `GRADE_MAX_TOKENS` / `GRADE_TEMPERATURE` | `45` / `300` / `0.2` | grading limits |
 | `ALLOWED_ORIGINS` | `localhost:5173,127.0.0.1:5173` | CORS allow-list (direct access) |
 | `RATE_LIMIT_PER_MIN` / `MAX_TRANSCRIPT_CHARS` | `30` / `600` | abuse guards |
+| `LLM_GUARD_ENABLED` / `LLM_GUARD_THRESHOLD` | `1` / `0.92` | local prompt-injection scanner |
 | `TRUST_PROXY_HEADERS` | `0` | use `X-Forwarded-For` for client rate-limit keys behind a trusted proxy |
 | `GRADE_CONCURRENCY` / `TTS_CONCURRENCY` / `STT_CONCURRENCY` | `1` / `1` / `1` | local model/subprocess concurrency caps |
 | `LOG_LEVEL` | `INFO` | backend logger verbosity |
