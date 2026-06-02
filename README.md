@@ -124,8 +124,9 @@ install via `requirements.txt`; the Piper voice lives in `server/voices/`.
 
 The frontend reaches the backend through the Vite **dev proxy** by default (same
 origin), so no `VITE_INTERVIEW_API_URL` is needed locally. For **voice over the
-network**, run `npm run dev:https` and open `https://<host>:5173` — voice needs a
-secure origin (see [Browser support](#browser-support)).
+network**, run `bash bin/civicctl.sh restart --https` (or `npm run dev:https` for
+frontend-only work) and open `https://<host>:5173` — voice needs a secure origin
+(see [Browser support](#browser-support)).
 
 ---
 
@@ -245,8 +246,14 @@ Microphone + speech recognition are **only allowed on a secure context** — i.e
 answers). To use voice over the network:
 
 ```bash
-npm run dev:https      # serves https://<host>:5173 (self-signed cert — accept the warning once)
+bash bin/civicctl.sh restart --https  # backend + https://<host>:5173
+# or, frontend-only:
+npm run dev:https                    # self-signed cert — accept the warning once
 ```
+
+For a LAN host that should always come back in HTTPS mode, set
+`CIVIC_UI_HTTPS=1` in `server/.env`. Plain `civicctl restart` preserves an
+already-HTTPS frontend; pass `--http` only when you intentionally want plain HTTP.
 
 The dev server **proxies** the interview API (`/grade`, `/tts`, `/stt`, `/health`)
 to the backend, so everything stays on one origin — no CORS and no mixed-content

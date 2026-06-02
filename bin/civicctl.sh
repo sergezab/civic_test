@@ -16,6 +16,8 @@
 #   --port PORT        backend port (default: 8090, env: CIVIC_BACKEND_PORT)
 #   --ui-port PORT     frontend port (default: 5173)
 #   --no-reload        disable uvicorn auto-reload
+#   --https            serve frontend over self-signed TLS (env: CIVIC_UI_HTTPS=1)
+#   --http             force plain HTTP
 #
 # Related:
 #   server/app.py      <- FastAPI app entry point (uvicorn app:app)
@@ -51,11 +53,27 @@ if [ -z "${CIVIC_BACKEND_PORT:-}" ] && [ -f "$SERVER_DIR/.env" ]; then
         | tail -n1 | cut -d= -f2 | tr -d '[:space:]')
     [ -n "$_env_port" ] && CIVIC_BACKEND_PORT="$_env_port"
 fi
+if [ -z "${CIVIC_UI_HTTPS:-}" ] && [ -f "$SERVER_DIR/.env" ]; then
+    _env_https=$(grep -E '^[[:space:]]*CIVIC_UI_HTTPS=' "$SERVER_DIR/.env" 2>/dev/null \
+        | tail -n1 | cut -d= -f2 | tr -d '[:space:]')
+    [ -n "$_env_https" ] && CIVIC_UI_HTTPS="$_env_https"
+fi
 PORT="${CIVIC_BACKEND_PORT:-8090}"
 UI_PORT=5173
 UI_HOST="0.0.0.0"   # bind wildcard so http://<host>.lan:5173 works on the LAN
-RELOAD="--reload"
-UI_HTTPS=0          # --https → serve Vite over self-signed TLS (mic needs secure ctx)
+# Auto-reload, but exclude the in-tree virtualenv: uvicorn --reload watches every
+# *.py under server/, and server/.venv holds thousands of dependency files (torch,
+# transformers, …). Without this, installing/updating deps makes WatchFiles thrash
+# the reloader (rapid restarts → "[Errno 48] Address already in use"). Excluding the
+# venv dir (absolute path) suppresses the whole subtree while source files still
+# trigger reloads. See `bash bin/civicctl.sh --no-reload` to disable entirely.
+RELOAD="--reload --reload-exclude $SERVER_DIR/.venv"
+UI_HTTPS="${CIVIC_UI_HTTPS:-0}" # --https → serve Vite over self-signed TLS (mic needs secure ctx)
+case "$(printf '%s' "$UI_HTTPS" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on|https) UI_HTTPS=1 ;;
+    *)                   UI_HTTPS=0 ;;
+esac
+UI_PROTOCOL_EXPLICIT=0
 
 # ── Colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -113,6 +131,80 @@ free_port() {
     [ -n "$pids" ] && echo "$pids" | xargs kill -9 2>/dev/null || true
 }
 
+spawn_detached() {
+    local pid_file="$1" log_file="$2" cwd="$3"
+    shift 3
+
+    local spawn_py="${CIVIC_SPAWN_PY:-}"
+    if [ -z "$spawn_py" ]; then
+        spawn_py=$(command -v python3 2>/dev/null || true)
+    fi
+    if [ -z "$spawn_py" ] && [ -x "$PY" ]; then
+        spawn_py="$PY"
+    fi
+    if [ -z "$spawn_py" ]; then
+        fail "python3 not found; cannot detach service process"
+        return 1
+    fi
+
+    CIVIC_SPAWN_PID_FILE="$pid_file" \
+    CIVIC_SPAWN_LOG_FILE="$log_file" \
+    CIVIC_SPAWN_CWD="$cwd" \
+    "$spawn_py" - "$@" <<'PY'
+import os
+import subprocess
+import sys
+
+pid_file = os.environ["CIVIC_SPAWN_PID_FILE"]
+log_file = os.environ["CIVIC_SPAWN_LOG_FILE"]
+cwd = os.environ["CIVIC_SPAWN_CWD"]
+cmd = sys.argv[1:]
+
+log = open(log_file, "ab", buffering=0)
+process = subprocess.Popen(
+    cmd,
+    cwd=cwd,
+    stdin=subprocess.DEVNULL,
+    stdout=log,
+    stderr=subprocess.STDOUT,
+    start_new_session=True,
+    close_fds=True,
+)
+with open(pid_file, "w", encoding="utf-8") as fh:
+    fh.write(str(process.pid))
+PY
+}
+
+last_frontend_was_https() {
+    [ -f "$FRONTEND_LOG" ] || return 1
+    local scheme
+    scheme=$(grep -E '^[[:space:]]*Bind:.*Scheme:' "$FRONTEND_LOG" 2>/dev/null \
+        | tail -n1 | sed -E 's/.*Scheme:[[:space:]]*([^[:space:]]+).*/\1/')
+    [ "$scheme" = "https" ]
+}
+
+lan_ip() {
+    local iface="" ip=""
+    iface=$(route get default 2>/dev/null | awk '/interface:/{print $2; exit}')
+    if [ -n "$iface" ]; then
+        ip=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
+    fi
+    if [ -z "$ip" ]; then
+        ip=$(ifconfig 2>/dev/null | awk '/^[[:alnum:]]/{iface=$1} /inet / && $2 != "127.0.0.1" {print $2; exit}')
+    fi
+    printf '%s' "$ip"
+}
+
+lan_hostname() {
+    local name=""
+    name=$(hostname 2>/dev/null || true)
+    if [ -z "$name" ]; then
+        name=$(hostname -s 2>/dev/null || true)
+        [ -n "$name" ] && name="${name}.local"
+    fi
+    printf '%s' "$name"
+}
+
 parse_options() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -121,8 +213,8 @@ parse_options() {
             --ui-port)   UI_PORT="$2"; shift 2 ;;
             --ui-port=*) UI_PORT="${1#--ui-port=}"; shift ;;
             --no-reload) RELOAD=""; shift ;;
-            --https)     UI_HTTPS=1; shift ;;
-            --http)      UI_HTTPS=0; shift ;;
+            --https)     UI_HTTPS=1; UI_PROTOCOL_EXPLICIT=1; shift ;;
+            --http)      UI_HTTPS=0; UI_PROTOCOL_EXPLICIT=1; shift ;;
             *)           shift ;;
         esac
     done
@@ -177,15 +269,18 @@ cmd_start() {
             echo "  Port: $PORT  Reload: ${RELOAD:-disabled}"
             echo "════════════════════════════════════════"
         } >> "$BACKEND_LOG"
-        (
-            cd "$SERVER_DIR" || exit 1
-            # shellcheck disable=SC2086
-            nohup "$PY" -m uvicorn app:app $RELOAD \
-                --host 0.0.0.0 --port "$PORT" --log-level info \
-                >> "$BACKEND_LOG" 2>&1 &
-            echo $! > "$BACKEND_PID_FILE"
-        )
-        ok "Backend started  →  PID $(cat "$BACKEND_PID_FILE")  log: logs/backend.log"
+        local backend_cmd=("$PY" -m uvicorn app:app)
+        if [ -n "$RELOAD" ]; then
+            local reload_args=()
+            read -r -a reload_args <<< "$RELOAD"
+            backend_cmd+=("${reload_args[@]}")
+        fi
+        backend_cmd+=(--host 0.0.0.0 --port "$PORT" --log-level info)
+        if spawn_detached "$BACKEND_PID_FILE" "$BACKEND_LOG" "$SERVER_DIR" "${backend_cmd[@]}"; then
+            ok "Backend started  →  PID $(cat "$BACKEND_PID_FILE")  log: logs/backend.log"
+        else
+            fail "Backend failed to launch"
+        fi
     fi
 
     # ── Frontend (Vite) ──────────────────────────────────────────────────────
@@ -208,14 +303,14 @@ cmd_start() {
             echo "  API:    ${API_PROXY_TARGET}"
             echo "════════════════════════════════════════"
         } >> "$FRONTEND_LOG"
-        (
-            cd "$REPO_ROOT" || exit 1
-            # HTTPS=1 makes vite.config.ts enable the basicSsl plugin (self-signed cert).
-            API_PROXY="$API_PROXY_TARGET" HTTPS="$UI_HTTPS" nohup npm exec --no -- vite --host "$VITE_BIND_HOST" --port "$VITE_BIND_PORT" --strictPort \
-                >> "$FRONTEND_LOG" 2>&1 &
-            echo $! > "$FRONTEND_PID_FILE"
-        )
-        ok "Frontend started →  PID $(cat "$FRONTEND_PID_FILE")  log: logs/frontend.log"
+        # HTTPS=1 makes vite.config.ts enable the basicSsl plugin (self-signed cert).
+        if spawn_detached "$FRONTEND_PID_FILE" "$FRONTEND_LOG" "$REPO_ROOT" \
+            env API_PROXY="$API_PROXY_TARGET" HTTPS="$UI_HTTPS" \
+            npm exec --no -- vite --host "$VITE_BIND_HOST" --port "$VITE_BIND_PORT" --strictPort; then
+            ok "Frontend started →  PID $(cat "$FRONTEND_PID_FILE")  log: logs/frontend.log"
+        else
+            fail "Frontend failed to launch"
+        fi
     fi
 
     # ── HTTPS dispatcher (only when --https) ─────────────────────────────────
@@ -231,13 +326,13 @@ cmd_start() {
                 echo "  Public: ${UI_HOST}:${UI_PORT}  →  127.0.0.1:${UI_INTERNAL_PORT}"
                 echo "════════════════════════════════════════"
             } >> "$DISPATCH_LOG"
-            (
-                cd "$REPO_ROOT" || exit 1
-                PUBLIC_PORT="$UI_PORT" UPSTREAM_PORT="$UI_INTERNAL_PORT" BIND_HOST="$UI_HOST" \
-                    nohup node "$DISPATCH_SCRIPT" >> "$DISPATCH_LOG" 2>&1 &
-                echo $! > "$DISPATCH_PID_FILE"
-            )
-            ok "Dispatcher started → PID $(cat "$DISPATCH_PID_FILE")  log: logs/frontend-dispatch.log"
+            if spawn_detached "$DISPATCH_PID_FILE" "$DISPATCH_LOG" "$REPO_ROOT" \
+                env PUBLIC_PORT="$UI_PORT" UPSTREAM_PORT="$UI_INTERNAL_PORT" BIND_HOST="$UI_HOST" \
+                node "$DISPATCH_SCRIPT"; then
+                ok "Dispatcher started → PID $(cat "$DISPATCH_PID_FILE")  log: logs/frontend-dispatch.log"
+            else
+                fail "Dispatcher failed to launch"
+            fi
         fi
     fi
 
@@ -248,17 +343,33 @@ cmd_start() {
     local be_ok=false fe_ok=false
     local fe_scheme="http"
     [[ "$UI_HTTPS" == "1" ]] && fe_scheme="https"
+    local lan_addr lan_name lan_ok=false
+    lan_addr=$(lan_ip)
+    lan_name=$(lan_hostname)
     curl -sf --max-time 3 "http://localhost:${PORT}/health" &>/dev/null && be_ok=true
     # -k: self-signed cert when UI_HTTPS=1 (basicSsl plugin).
     curl -skf --max-time 3 "${fe_scheme}://localhost:${UI_PORT}" &>/dev/null && fe_ok=true
+    if [ -n "$lan_addr" ]; then
+        curl -skf --max-time 3 "${fe_scheme}://${lan_addr}:${UI_PORT}" &>/dev/null && lan_ok=true
+    fi
     echo ""
     $be_ok && ok "Backend  →  http://localhost:${PORT}  (docs: http://localhost:${PORT}/docs)" \
            || warn "Backend not responding yet — check: bash bin/civicctl.sh logs backend"
     $fe_ok && ok "Frontend →  ${fe_scheme}://localhost:${UI_PORT}" \
            || warn "Frontend not responding yet — check: bash bin/civicctl.sh logs frontend"
+    if [ -n "$lan_name" ]; then
+        echo -e "${DIM}  LAN host: ${fe_scheme}://${lan_name}:${UI_PORT}${NC}"
+    fi
+    if [ -n "$lan_addr" ]; then
+        $lan_ok && ok "LAN probe →  ${fe_scheme}://${lan_addr}:${UI_PORT}" \
+                || warn "LAN probe failed for ${fe_scheme}://${lan_addr}:${UI_PORT}"
+    fi
     if [[ "$UI_HTTPS" == "1" ]]; then
-        echo -e "${DIM}  LAN: ${fe_scheme}://$(hostname -s).lan:${UI_PORT}  (self-signed cert — accept the browser warning)${NC}"
-        echo -e "${DIM}       http:// on the same port → 301 redirect to https://${NC}"
+        echo -e "${DIM}  Self-signed cert — accept the browser warning once.${NC}"
+        echo -e "${DIM}  http:// on the same port → 301 redirect to https://${NC}"
+    else
+        warn "Frontend is HTTP-only. Remote https://…:${UI_PORT} will fail with ERR_SSL_PROTOCOL_ERROR."
+        echo -e "${DIM}  For iPad/remote microphone use: bash bin/civicctl.sh restart --https${NC}"
     fi
     echo ""
 }
@@ -275,7 +386,16 @@ cmd_stop() {
     echo ""
 }
 
-cmd_restart() { cmd_stop; sleep 1; cmd_start "$@"; }
+cmd_restart() {
+    parse_options "$@"
+    if [[ "$UI_PROTOCOL_EXPLICIT" != "1" ]] && { is_running "$DISPATCH_PID_FILE" || last_frontend_was_https; }; then
+        UI_HTTPS=1
+        info "Preserving HTTPS frontend mode from the previous run (use --http to force plain HTTP)."
+    fi
+    cmd_stop
+    sleep 1
+    cmd_start "$@"
+}
 
 cmd_status() {
     parse_options "$@"
@@ -295,17 +415,23 @@ cmd_status() {
     echo ""
     if is_running "$FRONTEND_PID_FILE"; then
         ok "Frontend  running  (PID $(cat "$FRONTEND_PID_FILE"))"
-        # Detect scheme by probing http first, then https (covers --https mode).
-        local fe_url="http://localhost:${UI_PORT}"
-        if ! curl -sf --max-time 2 "$fe_url" &>/dev/null; then
-            curl -skf --max-time 2 "https://localhost:${UI_PORT}" &>/dev/null && fe_url="https://localhost:${UI_PORT}"
-        fi
-        curl -skf --max-time 2 "$fe_url" &>/dev/null \
-            && echo -e "           ${DIM}${fe_url} responding${NC}" \
-            || warn "          Frontend not responding on :${UI_PORT}"
     else
-        rm -f "$FRONTEND_PID_FILE"; fail "Frontend  stopped"
+        rm -f "$FRONTEND_PID_FILE"; warn "Frontend process not tracked/running"
     fi
+    if is_running "$DISPATCH_PID_FILE"; then
+        ok "Dispatcher running  (PID $(cat "$DISPATCH_PID_FILE"))"
+    else
+        rm -f "$DISPATCH_PID_FILE"
+    fi
+    # Probe HTTPS first: in --https mode the public HTTP endpoint redirects.
+    local fe_url=""
+    if curl -skf --max-time 2 "https://localhost:${UI_PORT}" &>/dev/null; then
+        fe_url="https://localhost:${UI_PORT}"
+    elif curl -sf --max-time 2 "http://localhost:${UI_PORT}" &>/dev/null; then
+        fe_url="http://localhost:${UI_PORT}"
+    fi
+    [ -n "$fe_url" ] && echo -e "           ${DIM}${fe_url} responding${NC}" \
+                     || fail "Frontend  not responding on :${UI_PORT}"
 
     echo ""
     echo -e "${BOLD}── Recent Logs ──${NC}"
@@ -393,6 +519,10 @@ cmd_help() {
     echo "    --ui-port PORT    Frontend port (default: 5173)"
     echo "    --no-reload       Disable uvicorn auto-reload"
     echo "    --https           Serve frontend over self-signed TLS (mic needs secure ctx)"
+    echo "    --http            Force plain HTTP frontend"
+    echo ""
+    echo "  Env:"
+    echo "    CIVIC_UI_HTTPS=1  Default civicctl start/restart to HTTPS (server/.env supported)"
     echo ""
     echo "  Logs: logs/backend.log  logs/frontend.log"
     echo "  PIDs: logs/backend.pid  logs/frontend.pid"
