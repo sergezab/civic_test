@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ilog } from "../utils/log";
+import { isIOSWebKitShell } from "../utils/platform";
 
 // Minimal typing for the Web Speech API (not in lib.dom for all TS versions).
 interface SpeechRecognitionLike {
@@ -25,6 +26,10 @@ function getCtor(): SRCtor | null {
   // non-localhost host). The constructor may still exist but start() yields no
   // audio, so treat insecure contexts as unsupported.
   if (!window.isSecureContext) return null;
+  // iPad/iPhone Chrome/Edge/Firefox run inside WebKit. They may expose pieces
+  // of the API, but live recognition often starts without yielding transcripts.
+  // Treat them as unsupported so the interview uses MediaRecorder + /stt.
+  if (isIOSWebKitShell()) return null;
   const w = window as unknown as {
     SpeechRecognition?: SRCtor;
     webkitSpeechRecognition?: SRCtor;

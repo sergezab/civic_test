@@ -118,7 +118,11 @@ export function InterviewScreen({
 }: InterviewScreenProps) {
   const rec = useSpeechRecognition();
   const recorder = useRecorder();
-  const { play: playFeedback, stop: stopFeedbackAudio } = useFeedbackAudio(speech.stop);
+  const {
+    play: playFeedback,
+    prime: primeFeedbackAudio,
+    stop: stopFeedbackAudio,
+  } = useFeedbackAudio(speech.stop);
   const {
     answerSecs,
     interviewMode,
@@ -328,6 +332,7 @@ export function InterviewScreen({
   );
 
   const startRetry = useCallback(() => {
+    primeFeedbackAudio();
     stopFeedbackAudio();
     clearReviewCountdown();
     setResult(null);
@@ -346,7 +351,7 @@ export function InterviewScreen({
       return;
     }
     speech.play(retryQuestion.id, retryQuestion.question);
-  }, [beginListening, clearReviewCountdown, rec, speech, stopFeedbackAudio]);
+  }, [beginListening, clearReviewCountdown, primeFeedbackAudio, rec, speech, stopFeedbackAudio]);
 
   const submitText = useCallback(
     async (raw: string) => {
@@ -463,6 +468,7 @@ export function InterviewScreen({
 
   // ── Manual controls ───────────────────────────────────────────
   const manualStart = () => {
+    primeFeedbackAudio();
     setNetError(null);
     rec.reset();
     setAnswer("");
@@ -471,11 +477,13 @@ export function InterviewScreen({
     setStage("listening");
   };
   const manualStopSubmit = useCallback(() => {
+    primeFeedbackAudio();
     rec.stop();
     submitText(transcriptRef.current);
-  }, [rec, submitText]);
+  }, [primeFeedbackAudio, rec, submitText]);
 
   const startAudioRecording = async () => {
+    primeFeedbackAudio();
     setNetError(null);
     setAnswer("");
     setRemaining(answerSecs);
@@ -484,6 +492,7 @@ export function InterviewScreen({
     else setNetError("Couldn't access the microphone — type your answer instead.");
   };
   const stopAudioRecording = useCallback(async () => {
+    primeFeedbackAudio();
     const blob = await recorder.stop();
     if (!blob) {
       setStage("ready");
@@ -496,7 +505,7 @@ export function InterviewScreen({
       setNetError("Transcription failed — type your answer instead.");
       setStage("ready");
     }
-  }, [recorder, submitText]);
+  }, [primeFeedbackAudio, recorder, submitText]);
 
   // Per-answer countdown — auto-submit when the time limit runs out (manual modes).
   useEffect(() => {
@@ -517,6 +526,7 @@ export function InterviewScreen({
 
   // Free redo (re-answer without scoring it as a new attempt).
   const redo = () => {
+    primeFeedbackAudio();
     stopFeedbackAudio();
     clearReviewCountdown();
     setResult(null);
@@ -559,6 +569,7 @@ export function InterviewScreen({
   };
 
   const startHandsFree = () => {
+    primeFeedbackAudio();
     clearReviewCountdown();
     setNetError(null);
     pausedRef.current = false;
@@ -576,6 +587,7 @@ export function InterviewScreen({
     setStage("ready");
   };
   const resumeAuto = () => {
+    primeFeedbackAudio();
     clearReviewCountdown();
     pausedRef.current = false;
     setPaused(false);
@@ -584,6 +596,7 @@ export function InterviewScreen({
 
   const switchMode = (next: InterviewMode) => {
     if (next === interviewMode) return;
+    primeFeedbackAudio();
     clearReviewCountdown();
     if (rec.listening) rec.stop();
     stopFeedbackAudio();
@@ -602,6 +615,7 @@ export function InterviewScreen({
   };
 
   const pauseReviewCountdown = () => {
+    primeFeedbackAudio();
     clearReviewCountdown();
     pausedRef.current = true;
     setPaused(true);
@@ -787,9 +801,22 @@ export function InterviewScreen({
         : "review"
       : "missed"
     : "missed";
+  const isLastQuestion = index + 1 >= deck.length;
+  const isAutoCountdown = auto && reviewRemaining !== null;
+  const nextActionLabel = isLastQuestion ? "Finish interview" : "Next question";
+  const timedNextActionLabel = isAutoCountdown
+    ? isLastQuestion
+      ? `Finish interview in ${reviewRemaining}s`
+      : resultCorrect
+        ? `Next question in ${reviewRemaining}s`
+        : `Continue in ${reviewRemaining}s`
+    : nextActionLabel;
+  const retryActionLabel = isAutoCountdown
+    ? `Try again in ${reviewRemaining}s`
+    : "🎤 Try again";
 
   return (
-    <div className="screen interview-screen">
+    <div className={`screen interview-screen${stage === "result" ? " is-result" : ""}`}>
       <div className="iv-controls">
         <div className="mode-toggle" role="group" aria-label="Interview mode">
           <button
@@ -979,38 +1006,31 @@ export function InterviewScreen({
               <span className="verdict-icon">{OUTCOME_ICON[resultOutcome]}</span>
               <span className="verdict-label">{result.verdict}</span>
             </div>
-            <p className="officer-feedback">{result.feedback}</p>
-            <div className="heard-line">
-              <span className="heard-label">What I heard:</span>
-              <span>“{result.heard || "—"}”</span>
+            <div className="officer-result-body">
+              <p className="officer-feedback">{result.feedback}</p>
+              <div className="heard-line">
+                <span className="heard-label">What I heard:</span>
+                <span>“{result.heard || "—"}”</span>
+              </div>
+              <div className="accepted-answer-panel">
+                <p className="accepted-answer-title">
+                  Official accepted answer{q.acceptableAnswers.length === 1 ? "" : "s"}:
+                </p>
+                <ul>
+                  {q.acceptableAnswers.map((accepted) => (
+                    <li key={accepted}>{accepted}</li>
+                  ))}
+                </ul>
+              </div>
+              {resultCorrect && attempt > 1 && (
+                <p className="answer-line">Got it on the retry — flagged for review.</p>
+              )}
+              {auto && paused && (
+                <p className="auto-next-hint">
+                  Countdown paused. Use the controls below when you're ready.
+                </p>
+              )}
             </div>
-            <div className="accepted-answer-panel">
-              <p className="accepted-answer-title">
-                Official accepted answer{q.acceptableAnswers.length === 1 ? "" : "s"}:
-              </p>
-              <ul>
-                {q.acceptableAnswers.map((accepted) => (
-                  <li key={accepted}>{accepted}</li>
-                ))}
-              </ul>
-            </div>
-            {resultCorrect && attempt > 1 && (
-              <p className="answer-line">Got it on the retry — flagged for review.</p>
-            )}
-            {auto && reviewRemaining !== null && (
-              <p className="auto-next-hint">
-                {retryAvailable
-                  ? `Trying again in ${reviewRemaining}s…`
-                  : resultCorrect
-                    ? `Next question in ${reviewRemaining}s…`
-                    : `Continuing in ${reviewRemaining}s…`}
-              </p>
-            )}
-            {auto && paused && (
-              <p className="auto-next-hint">
-                Countdown paused. Use the controls below when you're ready.
-              </p>
-            )}
           </div>
         )}
       </div>
@@ -1067,7 +1087,7 @@ export function InterviewScreen({
             {retryAvailable && (
               <>
                 <button className="btn btn-primary btn-wide" onClick={startRetry}>
-                  🎤 Try again
+                  {retryActionLabel}
                 </button>
                 <button
                   className="btn btn-ghost"
@@ -1083,7 +1103,7 @@ export function InterviewScreen({
                   className={`btn btn-wide ${resultCorrect ? "btn-correct" : "btn-primary"}`}
                   onClick={() => result && commitOutcome(result, resultOutcome)}
                 >
-                  {index + 1 >= deck.length ? "Finish interview" : "Next question"}
+                  {timedNextActionLabel}
                 </button>
                 <button className="btn btn-ghost" onClick={redo}>
                   Try again
@@ -1092,7 +1112,7 @@ export function InterviewScreen({
             )}
             {auto && reviewRemaining !== null && (
               <button className="btn btn-ghost" onClick={pauseReviewCountdown}>
-                ⏸ Pause countdown
+                ⏸ Pause countdown · {reviewRemaining}s
               </button>
             )}
           </>
@@ -1117,7 +1137,10 @@ export function InterviewScreen({
           )}
           <button
             className="btn btn-primary btn-wide"
-            onClick={() => submitText(answer)}
+            onClick={() => {
+              primeFeedbackAudio();
+              submitText(answer);
+            }}
             disabled={!answer.trim()}
           >
             Submit answer
